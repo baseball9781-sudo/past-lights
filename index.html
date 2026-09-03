@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Past Lights — 日本歴史繁栄マップ</title>
+<style>
+  :root{
+    --sea:#04060c; --land:#0b0f17; --coast:#1b2434;
+    --ink:#dfe6f2; --dim:#8792a6; --line:#222b3c; --panel:rgba(9,12,20,.94);
+    --accent:#ffd9a0;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#04060c;color:var(--ink);
+    font-family:"Hiragino Sans","Yu Gothic",-apple-system,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;overflow:hidden}
+  #app{position:fixed;inset:0;display:flex;flex-direction:column}
+  #stage{position:relative;flex:1;min-height:0}
+  canvas#map{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+
+  /* ---- 見出し ---- */
+  #title{position:absolute;left:20px;top:16px;pointer-events:none;z-index:3}
+  #title h1{margin:0;font-size:15px;letter-spacing:.18em;font-weight:600;color:#e8eefb}
+  #title p{margin:4px 0 0;font-size:11px;color:var(--dim);letter-spacing:.06em}
+
+  /* ---- 右上ボタン ---- */
+  #tools{position:absolute;right:16px;top:14px;z-index:4;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .btn{background:rgba(18,24,36,.85);border:1px solid var(--line);color:var(--ink);
+    font-size:11px;padding:6px 11px;border-radius:4px;cursor:pointer;letter-spacing:.05em;
+    font-family:inherit}
+  .btn:hover{border-color:#3d4c68;background:rgba(28,36,54,.9)}
+  .btn.on{border-color:#6b8dc0;color:#cfe2ff;background:rgba(30,48,74,.9)}
+
+  /* ---- 現在年 HUD ---- */
+  #hud{position:absolute;left:20px;bottom:16px;z-index:3;pointer-events:none}
+  #hud .yr{font-size:30px;font-weight:300;letter-spacing:.04em;line-height:1.1;color:#fff2dc}
+  #hud .sub{font-size:11px;color:var(--dim);margin-top:3px;letter-spacing:.06em}
+  #hud .interp{color:#f0b96b}
+
+  /* ---- 免責の常時表示 ---- */
+  #note{position:absolute;right:16px;bottom:14px;z-index:3;max-width:340px;
+    font-size:10px;line-height:1.6;color:#6f7b90;text-align:right}
+  #note b{color:#93a1b8;font-weight:600}
+
+  /* ---- スライダー ---- */
+  #timebar{height:92px;flex:none;background:linear-gradient(#070a11,#04060c);
+    border-top:1px solid var(--line);position:relative;padding:0 24px}
+  #trackWrap{position:relative;height:92px}
+  canvas#track{position:absolute;left:0;top:0;width:100%;height:100%;display:block;cursor:ew-resize}
+  #knob{position:absolute;top:26px;width:2px;height:30px;background:#ffe9c4;
+    box-shadow:0 0 10px 2px rgba(255,214,150,.55);pointer-events:none}
+  #knob::after{content:"";position:absolute;left:-4px;top:-6px;width:10px;height:10px;
+    border-radius:50%;background:#ffe9c4;box-shadow:0 0 12px 3px rgba(255,214,150,.6)}
+
+  /* ---- Layer2 パネル ---- */
+  #panel{position:absolute;right:0;top:0;bottom:0;width:370px;background:var(--panel);
+    border-left:1px solid var(--line);z-index:6;overflow-y:auto;padding:18px 18px 40px;
+    transform:translateX(100%);transition:transform .22s ease;backdrop-filter:blur(3px)}
+  #panel.open{transform:none}
+  #panel h2{margin:0 0 2px;font-size:19px;font-weight:600}
+  #panel .meta{font-size:11px;color:var(--dim);line-height:1.7}
+  #panel .sec{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
+  #panel .sec h3{margin:0 0 8px;font-size:11px;letter-spacing:.14em;color:#9fb0cc;font-weight:600}
+  #panel .now{font-size:13px;color:#ffe3bb}
+  #panel .why{font-size:12px;line-height:1.85;color:#c3ccdb;white-space:pre-wrap}
+  #panel .whyDetailToggle{font-size:10.5px;color:#7d879a;cursor:pointer;margin-top:8px;
+    text-decoration:underline dotted;user-select:none}
+  #panel .whyDetailToggle:hover{color:#aeb8c9}
+  #panel .whyDetail{display:none;font-size:10.5px;color:#7d879a;line-height:1.7;
+    margin-top:6px;white-space:pre-wrap;border-top:1px dotted #1e2637;padding-top:8px}
+  #panel .whyDetail.open{display:block}
+  #closeP{position:absolute;right:10px;top:8px;background:none;border:0;color:var(--dim);
+    font-size:20px;cursor:pointer;line-height:1}
+  .ev{font-size:11.5px;line-height:1.6;padding:6px 0;border-bottom:1px dotted #1e2637;display:flex;gap:8px}
+  .ev .y{color:#9fb0cc;flex:none;width:62px;font-variant-numeric:tabular-nums}
+  .ev .d{flex:none;width:12px;text-align:center}
+  .ev .up{color:#8fdcb0}.ev .dn{color:#e08a8a}.ev .nu{color:#7c879b}
+  .ev .x{color:#aeb8c9}
+  .tag{display:inline-block;font-size:10px;border:1px solid var(--line);border-radius:3px;
+    padding:1px 5px;margin-right:5px;color:#8ea0bd}
+  canvas#spark{width:100%;height:74px;display:block;background:#070a11;border:1px solid var(--line)}
+  #sparkNote{font-size:10px;color:#6f7b90;margin-top:5px;line-height:1.6}
+
+  /* ---- モーダル ---- */
+  #modal{position:fixed;inset:0;background:rgba(2,4,8,.82);z-index:20;display:none;
+    align-items:center;justify-content:center;padding:24px}
+  #modal.open{display:flex}
+  #modal .box{max-width:600px;background:#0a0e17;border:1px solid #26314a;border-radius:6px;
+    padding:26px 28px;font-size:13px;line-height:1.95}
+  #modal h3{margin:0 0 14px;font-size:15px;letter-spacing:.1em}
+  #modal p{margin:0 0 12px;color:#c3ccdb}
+  #modal .warn{background:rgba(255,190,110,.07);border-left:2px solid #d8a35e;padding:10px 14px;
+    color:#f0d7b0}
+  #modal small{color:#7d879a;font-size:11px;line-height:1.8;display:block}
+  #legend{position:absolute;left:20px;bottom:78px;z-index:3;font-size:10.5px;color:#8792a6;
+    line-height:1.9;pointer-events:none}
+  #legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;
+    vertical-align:middle}
+  #hover{position:absolute;z-index:5;pointer-events:none;background:rgba(8,11,18,.92);
+    border:1px solid var(--line);border-radius:3px;padding:4px 8px;font-size:11px;display:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="map"></canvas>
+    <div id="title">
+      <h1>Past Lights</h1>
+      <p>日本歴史繁栄マップ — もし昔の日本にも電気があったら</p>
+    </div>
+    <div id="tools">
+      <button class="btn" id="btnPlay">▶ 再生</button>
+      <button class="btn" id="btnEdges">交通エッジ</button>
+      <button class="btn" id="btnLabel">地名</button>
+      <button class="btn" id="btnInfo">この光について</button>
+    </div>
+    <div id="legend">
+      <div><i style="background:#ffe1a8"></i>都市・城下町　<i style="background:#a8ccff"></i>港</div>
+      <div><i style="background:#ffa860"></i>鉱山　<i style="background:#cfd8e8"></i>宿場・結節点</div>
+      <div style="margin-top:2px;color:#5f6b80">色は場所の種類（都市/港/鉱山/宿場）、明るさはその時代の中での重要度を表します</div>
+    </div>
+    <div id="hud">
+      <div class="yr" id="hudYear">—</div>
+      <div class="sub" id="hudSub">—</div>
+    </div>
+    <div id="note">
+      <b>この光は実際の夜間照明ではありません。</b><br>
+      当時の人口・交易・交通・産業・政治的重要性などから推定した「人間活動の明るさ」です。<br>
+      <span id="topnNote">各時代の上位200地点を表示</span>
+    </div>
+    <div id="hover"></div>
+    <div id="panel">
+      <button id="closeP">×</button>
+      <h2 id="pName"></h2>
+      <div class="meta" id="pMeta"></div>
+      <div class="sec"><h3>この時点</h3><div class="now" id="pNow"></div></div>
+      <div class="sec"><h3>時代別スコア</h3>
+        <canvas id="spark"></canvas>
+        <div id="sparkNote"></div>
+      </div>
+      <div class="sec"><h3>なぜ栄えた／衰えたか（要旨）</h3>
+        <div class="why" id="pWhy"></div>
+        <div class="whyDetailToggle" id="pWhyToggle" style="display:none">＋ 専門的な評価根拠を表示</div>
+        <div class="whyDetail" id="pWhyDetail"></div>
+      </div>
+      <div class="sec"><h3>出来事</h3><div id="pEvents"></div></div>
+      <div class="sec"><h3>出典</h3><div class="meta" id="pSrc"></div></div>
+    </div>
+  </div>
+  <div id="timebar"><div id="trackWrap">
+    <canvas id="track"></canvas><div id="knob"></div>
+  </div></div>
+</div>
+
+<div id="modal"><div class="box">
+  <h3>この光について</h3>
+  <p class="warn">この光は実際の夜間照明ではありません。当時の人口・交易・交通・産業・政治的重要性などから推定した「人間活動の明るさ」です。</p>
+  <p>各代表時点（BC3000〜2026の32時点）で、地点ごとに相対スコア（0-100）とバンド（S/A/B/C/D）を人手で付与しています。光の明るさ・大きさはそのスコアから機械的に変換したもので、スコアそのものではありません。</p>
+  <p>代表時点と代表時点のあいだの年は<b>線形補間</b>で表示し、その地点に記録のある出来事の年には段差をつけています。補間中の年は画面左下に「（補間）」と表示します。スコアの無い地点は光りません。</p>
+  <p>また、実際の人間活動には濃淡の連続的な広がりがある一方、詳しく調査できた地点（Tier1）は各時代とも限られた数しかありません。選抜された地点だけが目立ってしまう偏りを避けるため、<b>各代表時点でスコア上位<span id="topnNoteModal">200</span>地点のみを点灯</b>させています（該当地点数がそれに満たない時代は全地点を点灯）。上位から漏れた地点も、地図上のその位置をクリックすれば詳細パネルは開けます。</p>
+  <p><small id="mSrc"></small></p>
+  <p style="text-align:right;margin:0"><button class="btn" id="mClose">閉じる</button></p>
+</div></div>
+
+<script src="coastline.js?v=2"></script>
+<script src="data/bundle.js?v=4"></script>
+<script>
+(function(){
+"use strict";
+var D = window.PMAP, COAST = window.PMAP_COAST;
+if(!D){ document.body.innerHTML='<p style="padding:40px">data/bundle.js が読み込めません。tools/build_ui_data.py を実行してください。</p>'; return; }
+
+// ============================================================ 定数
+var TPS = D.meta.timepoints;                 // [{t,y}] 昇順
+var TY  = TPS.map(function(o){return o.y;});
+var Y0 = TY[0], Y1 = TY[TY.length-1];
+
+var TYPE = {
+  urban:{col:[255,225,170], scale:1.00, core:0.55, soft:1.00},
+  port :{col:[168,205,255], scale:0.80, core:0.60, soft:0.95},
+  mine :{col:[255,168, 92], scale:0.42, core:1.00, soft:0.60},
+  hub  :{col:[207,216,232], scale:0.46, core:0.85, soft:0.60},
+  other:{col:[196,206,224], scale:0.58, core:0.65, soft:0.75}
+};
+var BAND_FLOOR = {S:0.74, A:0.54, B:0.36, C:0.18, D:0.10};
+function bandOf(s){ return s>=88?'S': s>=70?'A': s>=50?'B': s>=30?'C':'D'; }
+// T2N（全市区町村機械生成のTier2 National）は研究地点(T1/T2)よりわずかに
+// 控えめに描画する（研究済み地点をわずかに優先＝ユーザー指示）。
+var T2N_BRIGHT_MUL = 0.8, T2N_RADIUS_MUL = 0.85;
+// 各代表時点で光らせる地点数の上限（スコア上位のみ点灯。これに満たない時代は全部点灯）。
+// 選抜バイアス（Tier1調査済みの209地点だけが常に目立つ）を消すための主要機構。
+var TOPN = 200;
+var CONF_RANK = {A:4, B:3, C:2, D:1, '':0};
+
+// ============================================================ 索引
+var PL = {}, PLIST = D.places;
+PLIST.forEach(function(p){ PL[p.id]=p; });
+
+var SER = {};   // place_id -> [{y,t,s,b,c,why}] 昇順
+D.scores.forEach(function(r){ (SER[r.p]=SER[r.p]||[]).push(r); });
+Object.keys(SER).forEach(function(k){ SER[k].sort(function(a,b){return a.y-b.y;}); });
+
+var EVP = {};   // place_id -> events
+D.events.forEach(function(e){ (EVP[e.p]=EVP[e.p]||[]).push(e); });
+
+var tpIndex = {}; TY.forEach(function(y,i){ tpIndex[y]=i; });
+
+// place_id -> tier（T1既定 / T2 / T2N。1地点の行はtierが揃っている前提）
+var PLACE_TIER = {};
+Object.keys(SER).forEach(function(pid){ PLACE_TIER[pid] = SER[pid][0].tier || 'T1'; });
+
+// ---- 代表時点ごとの「上位TOPN地点」集合（選抜バイアス対策の主機構）
+// 各代表時点で実測行を持つ全地点（T1+T2+T2N）をスコア降順・同点はconfidence
+// 降順でランキングし、上位TOPN件だけを「その時点で点灯可」とする。
+// TOPN未満しか実測行が無い時代（古代など）はそのまま全部点灯する。
+var TOPN_SET = {};
+TY.forEach(function(y){
+  var rows = [];
+  Object.keys(SER).forEach(function(pid){
+    SER[pid].forEach(function(r){ if(r.y===y) rows.push(r); });
+  });
+  rows.sort(function(a,b){
+    if(b.s!==a.s) return b.s-a.s;
+    return (CONF_RANK[b.c]||0) - (CONF_RANK[a.c]||0);
+  });
+  var set = {};
+  rows.slice(0, TOPN).forEach(function(r){ set[r.p]=true; });
+  TOPN_SET[y] = set;
+});
+function boundingReprYears(y){
+  if(y<=TY[0]) return [TY[0],TY[0]];
+  if(y>=TY[TY.length-1]) return [TY[TY.length-1],TY[TY.length-1]];
+  for(var i=0;i<TY.length-1;i++){
+    if(y>=TY[i] && y<=TY[i+1]) return [TY[i],TY[i+1]];
+  }
+  return [TY[TY.length-1],TY[TY.length-1]];
+}
+function inTopN(pid, y){
+  var bd=boundingReprYears(y);
+  var a=TOPN_SET[bd[0]], b=TOPN_SET[bd[1]];
+  return !!((a && a[pid]) || (b && b[pid]));
+}
+
+// ============================================================ 非線形の年スケール
+// 代表時点を節点にし、区間長の 0.42 乗を重みにする（古代の長い空白を圧縮）
+var KN = [], acc = 0;
+for (var i=0;i<TY.length;i++){
+  if(i>0) acc += Math.pow(TY[i]-TY[i-1], 0.42);
+  KN.push(acc);
+}
+var KMAX = acc;
+function yearToPos(y){                       // year -> 0..1
+  if(y<=Y0) return 0; if(y>=Y1) return 1;
+  for(var i=1;i<TY.length;i++){
+    if(y<=TY[i]){
+      var f=(y-TY[i-1])/(TY[i]-TY[i-1]);
+      return (KN[i-1]+f*(KN[i]-KN[i-1]))/KMAX;
+    }
+  }
+  return 1;
+}
+function posToYear(p){                       // 0..1 -> year
+  p=Math.max(0,Math.min(1,p))*KMAX;
+  for(var i=1;i<KN.length;i++){
+    if(p<=KN[i]){
+      var f=(p-KN[i-1])/(KN[i]-KN[i-1]||1);
+      return TY[i-1]+f*(TY[i]-TY[i-1]);
+    }
+  }
+  return Y1;
+}
+
+// ============================================================ スコア補間
+// 返り値 {v, interp, seg, stepped}
+//  - 代表時点ちょうど: 実測値（interp=false）
+//  - 隣接する代表時点間: 線形補間。区間内に当該地点の出来事があれば、
+//    変化量の 60% をその年に段差として割り当てる（端点の値は不変）。
+//  - 代表時点が飛んでいる区間（その地点に行が無い時点を挟む）: 消灯へフェード。
+function scoreAt(pid, y){
+  var s = SER[pid]; if(!s || !s.length) return null;
+  var n = s.length;
+  if(y < s[0].y){
+    var i0 = tpIndex[s[0].y];
+    if(i0>0 && y >= TY[i0-1]){
+      var f=(y-TY[i0-1])/(s[0].y-TY[i0-1]);
+      return {v:s[0].s*f, interp:true, seg:[null,s[0]], fade:true};
+    }
+    return null;
+  }
+  if(y > s[n-1].y){
+    var iL = tpIndex[s[n-1].y];
+    if(iL < TY.length-1 && y <= TY[iL+1]){
+      var g=1-(y-s[n-1].y)/(TY[iL+1]-s[n-1].y);
+      return {v:s[n-1].s*g, interp:true, seg:[s[n-1],null], fade:true};
+    }
+    return null;
+  }
+  for(var k=0;k<n;k++){
+    if(y===s[k].y) return {v:s[k].s, interp:false, seg:[s[k],s[k]]};
+    if(y<s[k].y){
+      var a=s[k-1], b=s[k];
+      var ia=tpIndex[a.y], ib=tpIndex[b.y];
+      if(ib-ia>1){                            // 途中に行が無い時点あり → 消灯を挟む
+        var offA=TY[ia+1], onB=TY[ib-1];
+        if(y<=offA){ var fa=1-(y-a.y)/(offA-a.y); return {v:a.s*fa,interp:true,seg:[a,null],fade:true}; }
+        if(y>=onB){ var fb=(y-onB)/(b.y-onB); return {v:b.s*fb,interp:true,seg:[null,b],fade:true}; }
+        return {v:0, interp:true, seg:[a,b], fade:true};
+      }
+      // 隣接区間: 出来事で段差
+      var Dv=b.s-a.s, sg=Dv>=0?1:-1, ab=Math.abs(Dv);
+      var evs=(EVP[pid]||[]).filter(function(e){
+        return e.y>a.y && e.y<=b.y && (e.d===sg) && ab>0; });
+      var lin=ab*(evs.length?0.4:1.0), stepTotal=ab-lin, stepped=null;
+      var wsum=0; evs.forEach(function(e){ wsum+=e.st; });
+      var v=a.s + sg*lin*(y-a.y)/(b.y-a.y);
+      evs.forEach(function(e){
+        if(e.y<=y){ v += sg*stepTotal*(e.st/(wsum||1)); if(!stepped||e.y>stepped.y) stepped=e; }
+      });
+      return {v:v, interp:true, seg:[a,b], stepped:stepped};
+    }
+  }
+  return null;
+}
+function nearestRow(pid, y){
+  var s=SER[pid], best=null, bd=1e18;
+  if(!s) return null;
+  s.forEach(function(r){ var d=Math.abs(r.y-y); if(d<bd){bd=d;best=r;} });
+  return best;
+}
+
+// ============================================================ 投影
+var MAIN = {lon0:128.55, lon1:146.35, lat0:30.25, lat1:45.95};
+var INSET_SW = {lon0:122.9, lon1:130.2, lat0:23.9, lat1:28.9, label:'南西諸島'};
+var INSET_OG = {lon0:141.9, lon1:142.45, lat0:26.5, lat1:27.25, label:'小笠原'};
+var KC = Math.cos(38*Math.PI/180);
+
+var view = {ox:0, oy:0, sc:1};      // 本土
+var insets = [];                    // {box:{x,y,w,h}, geo, sc, ox, oy, label}
+
+function fitMain(w,h){
+  var gw=(MAIN.lon1-MAIN.lon0)*KC, gh=(MAIN.lat1-MAIN.lat0);
+  var pad=26, avW=w-pad*2, avH=h-pad*2;
+  var sc=Math.min(avW/gw, avH/gh);
+  view.sc=sc;
+  view.ox=(w-gw*sc)/2 - MAIN.lon0*KC*sc;
+  view.oy=(h-gh*sc)/2 + MAIN.lat1*sc;
+}
+function projMain(lon,lat){ return [lon*KC*view.sc+view.ox, view.oy-lat*view.sc]; }
+
+function fitInsets(w,h){
+  insets=[];
+  function mk(geo, bx, by, bw, bh){
+    var gw=(geo.lon1-geo.lon0)*KC, gh=(geo.lat1-geo.lat0);
+    var sc=Math.min((bw-14)/gw,(bh-14)/gh);
+    insets.push({geo:geo, sc:sc, box:{x:bx,y:by,w:bw,h:bh},
+      ox:bx+(bw-gw*sc)/2 - geo.lon0*KC*sc,
+      oy:by+(bh-gh*sc)/2 + geo.lat1*sc, label:geo.label});
+  }
+  var W=Math.min(272, w*0.26), H=Math.min(202, h*0.33);
+  mk(INSET_SW, 20, h-H-104, W, H);
+  mk(INSET_OG, 20+W+12, h-96-78, 96, 78);
+}
+function projFor(lon,lat){
+  for(var i=0;i<insets.length;i++){
+    var s=insets[i], g=s.geo;
+    if(lon>=g.lon0&&lon<=g.lon1&&lat>=g.lat0&&lat<=g.lat1)
+      return [lon*KC*s.sc+s.ox, s.oy-lat*s.sc, s];
+  }
+  return [lon*KC*view.sc+view.ox, view.oy-lat*view.sc, null];
+}
+
+// 島 → どの投影で描くか
+var SW_ISL = {okinawa:1,kume:1,amami:1,miyako:1,ishigaki:1,iriomote:1,tokunoshima:1,okinoerabu:1};
+var OG_ISL = {chichijima:1,hahajima:1};
+
+// ============================================================ 描画
+var cv=document.getElementById('map'), cx=cv.getContext('2d');
+var W=0,H=0,DPR=1;
+var state={year:-3000, playing:false, edges:false, labels:false, sel:null, hover:null};
+var lightCache=[];   // {p,x,y,v,r,ins}
+
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1, 2);
+  var st=document.getElementById('stage');
+  W=st.clientWidth; H=st.clientHeight;
+  cv.width=W*DPR; cv.height=H*DPR;
+  cx.setTransform(DPR,0,0,DPR,0,0);
+  fitMain(W,H); fitInsets(W,H);
+  resizeTrack();
+  draw();
+}
+
+function polyPath(arr, proj){
+  cx.beginPath();
+  for(var i=0;i<arr.length;i+=2){
+    var q=proj(arr[i],arr[i+1]);
+    if(i===0) cx.moveTo(q[0],q[1]); else cx.lineTo(q[0],q[1]);
+  }
+  cx.closePath();
+}
+function drawLand(){
+  cx.fillStyle='#0b0f17'; cx.strokeStyle='#1b2434'; cx.lineWidth=1;
+  Object.keys(COAST).forEach(function(k){
+    if(SW_ISL[k]||OG_ISL[k]) return;
+    polyPath(COAST[k], projMain); cx.fill(); cx.stroke();
+  });
+}
+function drawInsets(){
+  insets.forEach(function(s){
+    var b=s.box;
+    cx.save();
+    cx.beginPath(); cx.rect(b.x,b.y,b.w,b.h); cx.clip();
+    cx.fillStyle='#05070e'; cx.fillRect(b.x,b.y,b.w,b.h);
+    cx.fillStyle='#131926'; cx.strokeStyle='#2b3648'; cx.lineWidth=1;
+    var set = (s.geo===INSET_SW)?SW_ISL:OG_ISL;
+    Object.keys(COAST).forEach(function(k){
+      if(!set[k]) return;
+      polyPath(COAST[k], function(lo,la){ return [lo*KC*s.sc+s.ox, s.oy-la*s.sc]; });
+      cx.fill(); cx.stroke();
+    });
+    cx.restore();
+    cx.strokeStyle='#232e42'; cx.lineWidth=1; cx.strokeRect(b.x+.5,b.y+.5,b.w,b.h);
+    cx.fillStyle='#6b7789'; cx.font='10px sans-serif';
+    cx.fillText(s.label+'（距離を詰めて表示）', b.x+6, b.y+13);
+  });
+}
+
+function drawEdges(y){
+  if(!state.edges) return;
+  cx.save(); cx.lineCap='round';
+  D.edges.forEach(function(e){
+    if(y<e.s-40 || y>e.e+40) return;
+    var doc = e.ev==='documented';
+    cx.strokeStyle = doc? 'rgba(120,165,215,0.20)' : 'rgba(120,150,190,0.11)';
+    cx.lineWidth = doc? 1.1 : 0.9;
+    cx.setLineDash(doc? [] : [2,4]);
+    cx.beginPath();
+    for(var i=0;i<e.p.length;i++){
+      var q=projFor(e.p[i][0], e.p[i][1]);
+      if(i===0) cx.moveTo(q[0],q[1]); else cx.lineTo(q[0],q[1]);
+    }
+    cx.stroke();
+  });
+  cx.setLineDash([]); cx.restore();
+}
+
+function lightGeom(v){
+  var norm=Math.max(0,Math.min(1,v/100));
+  var bright=0.06+0.94*Math.sqrt(norm);
+  var r=6+30*Math.pow(norm,0.85);
+  return {bright:bright, r:r};
+}
+function computeLights(y){
+  var out=[];
+  for(var i=0;i<PLIST.length;i++){
+    var p=PLIST[i], sc=scoreAt(p.id,y);
+    if(!sc || sc.v<=0.5) continue;
+    if(!inTopN(p.id,y)) continue;               // 選抜: 各時点の上位TOPNのみ点灯
+    var g=lightGeom(sc.v);
+    var floor=BAND_FLOOR[bandOf(sc.v)];
+    var br=Math.max(floor, g.bright);
+    var r=g.r;
+    if(PLACE_TIER[p.id]==='T2N'){ br*=T2N_BRIGHT_MUL; r*=T2N_RADIUS_MUL; }
+    var q=projFor(p.lon,p.lat);
+    out.push({p:p, x:q[0], y:q[1], ins:q[2], v:sc.v, br:br, r:r, sc:sc});
+  }
+  return out;
+}
+function drawLights(list){
+  cx.save(); cx.globalCompositeOperation='lighter';
+  list.forEach(function(L){
+    var T=TYPE[L.p.k]||TYPE.other, c=T.col;
+    var R=L.r*T.scale*(L.ins?0.72:1);
+    var a=L.br;
+    var g=cx.createRadialGradient(L.x,L.y,0,L.x,L.y,Math.max(3,R));
+    g.addColorStop(0,   'rgba('+c[0]+','+c[1]+','+c[2]+','+(0.85*a).toFixed(3)+')');
+    g.addColorStop(0.18,'rgba('+c[0]+','+c[1]+','+c[2]+','+(0.42*a*T.soft).toFixed(3)+')');
+    g.addColorStop(0.45,'rgba('+c[0]+','+c[1]+','+c[2]+','+(0.13*a*T.soft).toFixed(3)+')');
+    g.addColorStop(1,   'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
+    cx.fillStyle=g; cx.beginPath(); cx.arc(L.x,L.y,Math.max(3,R),0,6.2832); cx.fill();
+    // コア
+    var cr=Math.max(0.7, 1.1+2.0*Math.pow(L.v/100,1.2)*T.core);
+    cx.fillStyle='rgba(255,255,'+(L.p.k==='mine'?200:245)+','+Math.min(1,0.55*a*T.core+0.15).toFixed(3)+')';
+    cx.beginPath(); cx.arc(L.x,L.y,cr,0,6.2832); cx.fill();
+  });
+  cx.restore();
+}
+function drawLabels(list){
+  if(!state.labels) return;
+  var top=list.slice().sort(function(a,b){return b.v-a.v;}).slice(0,26);
+  cx.save(); cx.font='11px "Hiragino Sans",sans-serif'; cx.fillStyle='rgba(220,230,245,.72)';
+  cx.shadowColor='rgba(0,0,0,.9)'; cx.shadowBlur=4;
+  top.forEach(function(L){ cx.fillText(L.p.n, L.x+ (L.r*0.35+5), L.y-4); });
+  cx.restore();
+}
+function drawSelRing(list){
+  if(!state.sel) return;
+  for(var i=0;i<list.length;i++){
+    if(list[i].p.id===state.sel){
+      cx.save(); cx.strokeStyle='rgba(255,225,170,.75)'; cx.lineWidth=1;
+      cx.beginPath(); cx.arc(list[i].x,list[i].y,13,0,6.2832); cx.stroke(); cx.restore();
+      return;
+    }
+  }
+}
+
+function draw(){
+  cx.setTransform(DPR,0,0,DPR,0,0);
+  cx.fillStyle='#04060c'; cx.fillRect(0,0,W,H);
+  drawLand();
+  drawEdges(state.year);
+  lightCache=computeLights(state.year);
+  drawLights(lightCache.filter(function(L){return !L.ins;}));
+  drawInsets();
+  var ins=lightCache.filter(function(L){return L.ins;});
+  if(ins.length){
+    cx.save();
+    insets.forEach(function(s){
+      cx.save(); cx.beginPath(); cx.rect(s.box.x,s.box.y,s.box.w,s.box.h); cx.clip();
+      drawLights(ins.filter(function(L){return L.ins===s;}));
+      cx.restore();
+    });
+    cx.restore();
+  }
+  drawLabels(lightCache);
+  drawSelRing(lightCache);
+  updateHUD();
+  drawTrack();
+  if(state.sel) renderPanel();
+}
+
+// ============================================================ HUD
+function fmtYear(y){
+  y=Math.round(y);
+  return y<0? ('紀元前'+Math.abs(y)+'年') : (y+'年');
+}
+function nearestTP(y){
+  var b=TPS[0],bd=1e18;
+  TPS.forEach(function(t){var d=Math.abs(t.y-y); if(d<bd){bd=d;b=t;}});
+  return {tp:b, exact:bd<0.5};
+}
+function updateHUD(){
+  var nt=nearestTP(state.year);
+  document.getElementById('hudYear').textContent=fmtYear(state.year);
+  var lit=lightCache.length;
+  var s='光っている地点 '+lit+' / 全'+PLIST.length;
+  document.getElementById('hudSub').innerHTML =
+    (nt.exact? '<span>代表時点 '+nt.tp.t+'（実測）</span>'
+             : '<span class="interp">補間（代表時点 '+nt.tp.t+' に最も近い）</span>')
+    + '　·　' + s;
+}
+
+// ============================================================ タイムライン
+var tcv=document.getElementById('track'), tcx=tcv.getContext('2d');
+var TW=0,TH=0, EVBINS=null;
+function buildEvBins(n){
+  var b=new Float32Array(n);
+  D.events.forEach(function(e){
+    if(e.y<Y0||e.y>Y1) return;
+    var i=Math.min(n-1, Math.floor(yearToPos(e.y)*n));
+    b[i]+= (e.st||2);
+  });
+  var mx=0; for(var i=0;i<n;i++) mx=Math.max(mx,b[i]);
+  for(var j=0;j<n;j++) b[j]=mx?b[j]/mx:0;
+  return b;
+}
+function resizeTrack(){
+  var wrap=document.getElementById('trackWrap');
+  TW=wrap.clientWidth; TH=wrap.clientHeight;
+  tcv.width=TW*DPR; tcv.height=TH*DPR;
+  tcx.setTransform(DPR,0,0,DPR,0,0);
+  EVBINS=buildEvBins(Math.max(200,Math.floor(TW)));
+}
+function drawTrack(){
+  if(!TW) return;
+  tcx.setTransform(DPR,0,0,DPR,0,0);
+  tcx.clearRect(0,0,TW,TH);
+  var y0=42;
+  // 出来事密度（D-024）: 軌道上で微発光
+  tcx.save(); tcx.globalCompositeOperation='lighter';
+  for(var i=0;i<EVBINS.length;i++){
+    var v=EVBINS[i]; if(v<=0) continue;
+    var x=i*(TW/EVBINS.length);
+    var g=tcx.createLinearGradient(0,y0-11,0,y0+11);
+    var a=0.10+0.72*Math.pow(v,0.6);
+    g.addColorStop(0,'rgba(255,206,140,0)');
+    g.addColorStop(.5,'rgba(255,206,140,'+a.toFixed(3)+')');
+    g.addColorStop(1,'rgba(255,206,140,0)');
+    tcx.fillStyle=g; tcx.fillRect(x, y0-11, Math.max(1,TW/EVBINS.length+0.6), 22);
+  }
+  tcx.restore();
+  // 軌道
+  tcx.strokeStyle='#232c3e'; tcx.lineWidth=1;
+  tcx.beginPath(); tcx.moveTo(0,y0+.5); tcx.lineTo(TW,y0+.5); tcx.stroke();
+  // 代表時点の目盛り
+  tcx.font='9.5px sans-serif'; tcx.textAlign='center';
+  var lastLx=-99, row=0;
+  TPS.forEach(function(t,i){
+    var x=yearToPos(t.y)*TW;
+    tcx.strokeStyle='#41506c';
+    tcx.beginPath(); tcx.moveTo(x,y0-6); tcx.lineTo(x,y0+6); tcx.stroke();
+    var lbl=t.t.replace('AD','');
+    var wpx=tcx.measureText(lbl).width;
+    row = (x-lastLx < wpx+8) ? (row?0:1) : 0;   // 近すぎるものは2段に振り分け
+    tcx.fillStyle='#6f7d95';
+    tcx.fillText(lbl, Math.max(wpx/2+2, Math.min(TW-wpx/2-2, x)), y0+20+row*11);
+    lastLx=x;
+  });
+  tcx.textAlign='left';
+  tcx.fillStyle='#5b667c'; tcx.font='10px sans-serif';
+  tcx.fillText('← 古代（圧縮）', 4, 16);
+  tcx.textAlign='right'; tcx.fillText('近現代 →', TW-4, 16);
+  tcx.textAlign='left';
+  tcx.fillStyle='#4d5769';
+  tcx.fillText('帯の明るい部分＝出来事が集中する時期', 4, TH-8);
+  document.getElementById('knob').style.left=(yearToPos(state.year)*TW)+'px';
+}
+
+// ドラッグ
+var dragging=false;
+function trackSet(clientX){
+  var r=tcv.getBoundingClientRect();
+  var p=(clientX-r.left)/r.width;
+  var y=posToYear(p);
+  // 代表時点に近ければスナップ（±0.6% 以内）
+  var pp=Math.max(0,Math.min(1,p));
+  for(var i=0;i<TPS.length;i++){
+    if(Math.abs(yearToPos(TPS[i].y)-pp) < 0.004){ y=TPS[i].y; break; }
+  }
+  state.year=y; draw();
+}
+tcv.addEventListener('pointerdown',function(e){dragging=true;tcv.setPointerCapture(e.pointerId);trackSet(e.clientX);});
+tcv.addEventListener('pointermove',function(e){ if(dragging) trackSet(e.clientX); });
+tcv.addEventListener('pointerup',function(){dragging=false;});
+tcv.addEventListener('pointercancel',function(){dragging=false;});
+
+// ============================================================ 再生
+var raf=null, last=0;
+function tick(ts){
+  if(!state.playing) return;
+  if(!last) last=ts;
+  var dt=(ts-last)/1000; last=ts;
+  var p=yearToPos(state.year)+dt/26;   // 全長を約26秒で走破
+  if(p>=1){ p=0; }
+  state.year=posToYear(p);
+  draw();
+  raf=requestAnimationFrame(tick);
+}
+document.getElementById('btnPlay').addEventListener('click',function(){
+  state.playing=!state.playing; last=0;
+  this.textContent=state.playing?'❚❚ 停止':'▶ 再生';
+  this.classList.toggle('on',state.playing);
+  if(state.playing) raf=requestAnimationFrame(tick); else cancelAnimationFrame(raf);
+});
+document.getElementById('btnEdges').addEventListener('click',function(){
+  state.edges=!state.edges; this.classList.toggle('on',state.edges); draw();
+});
+document.getElementById('btnLabel').addEventListener('click',function(){
+  state.labels=!state.labels; this.classList.toggle('on',state.labels); draw();
+});
+var modal=document.getElementById('modal');
+document.getElementById('btnInfo').addEventListener('click',function(){modal.classList.add('open');});
+document.getElementById('mClose').addEventListener('click',function(){modal.classList.remove('open');});
+modal.addEventListener('click',function(e){ if(e.target===modal) modal.classList.remove('open'); });
+document.getElementById('mSrc').textContent='データ出典 — '+D.meta.sources;
+document.getElementById('topnNote').textContent='各時代の上位'+TOPN+'地点を表示';
+document.getElementById('topnNoteModal').textContent=TOPN;
+
+// ============================================================ ヒットテスト
+// 点灯中の地点を優先してヒットテストするが、上位TOPN選抜から漏れて消灯している
+// 地点も、その座標の近傍クリックであればLayer2（詳細パネル）を開けるようにする
+// （地名検索UIは未実装。README「残課題」参照）。
+function hit(mx,my){
+  var best=null,bd=1e18;
+  for(var i=0;i<lightCache.length;i++){
+    var L=lightCache[i];
+    var d=(L.x-mx)*(L.x-mx)+(L.y-my)*(L.y-my);
+    var rad=Math.max(9, L.r*0.42);
+    if(d<rad*rad && d<bd){ bd=d; best=L; }
+  }
+  if(best) return best;
+  var bd2=64, bp=null, bq=null;                 // 消灯地点: 固定8px半径の近傍クリック
+  for(var j=0;j<PLIST.length;j++){
+    var p=PLIST[j], q=projFor(p.lon,p.lat);
+    var d2=(q[0]-mx)*(q[0]-mx)+(q[1]-my)*(q[1]-my);
+    if(d2<bd2){ bd2=d2; bp=p; bq=q; }
+  }
+  if(bp){
+    var sc=scoreAt(bp.id, state.year);
+    return {p:bp, x:bq[0], y:bq[1], ins:bq[2], v:sc?sc.v:0, r:6, sc:sc, dark:true};
+  }
+  return null;
+}
+var hv=document.getElementById('hover');
+cv.addEventListener('mousemove',function(e){
+  var r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  var L=hit(mx,my);
+  if(L){ hv.style.display='block'; hv.style.left=(mx+12)+'px'; hv.style.top=(my-6)+'px';
+    hv.textContent = L.sc? (L.p.n+'　'+L.v.toFixed(0)+'（'+bandOf(L.v)+'）'+(L.dark?'・消灯中':''))
+                          : (L.p.n+'（この時点はスコア無し）');
+    cv.style.cursor='pointer'; }
+  else { hv.style.display='none'; cv.style.cursor='crosshair'; }
+});
+cv.addEventListener('click',function(e){
+  var r=cv.getBoundingClientRect();
+  var L=hit(e.clientX-r.left, e.clientY-r.top);
+  if(L){ state.sel=L.p.id; openPanel(); } else { closePanel(); }
+  draw();
+});
+function openPanel(){ document.getElementById('panel').classList.add('open'); renderPanel(); }
+function closePanel(){ document.getElementById('panel').classList.remove('open'); state.sel=null; }
+document.getElementById('closeP').addEventListener('click',function(){closePanel();draw();});
+
+// ============================================================ Layer2 パネル
+var DIRC={1:['▲','up'], '-1':['▼','dn'], 0:['·','nu']};
+function renderPanel(){
+  var pid=state.sel; if(!pid) return;
+  var p=PL[pid], sc=scoreAt(pid,state.year), rows=SER[pid]||[];
+  document.getElementById('pName').textContent=p.n;
+  document.getElementById('pMeta').innerHTML=
+    '<span class="tag">'+p.kt+'</span>'+(p.pref||'')+
+    (p.hn? '<br>別称: '+p.hn : '')+
+    '<br>座標 '+p.lat.toFixed(3)+', '+p.lon.toFixed(3);
+
+  var nt=nearestTP(state.year);
+  var now='';
+  if(sc){
+    now = fmtYear(state.year)+' — スコア <b>'+sc.v.toFixed(1)+'</b>（'+bandOf(sc.v)+'帯）'+
+      (sc.interp? ' <span style="color:#f0b96b">補間値（＝前後の時点から推定した表示）</span>'
+                 : ' <span style="color:#9fd8a8">実測値（＝調査で確認できた値）</span>');
+    if(sc.stepped) now+='<br><span style="font-size:11px;color:#e0b98a">直近の段差: '+
+      fmtYear(sc.stepped.y)+' '+sc.stepped.x+'</span>';
+    if(sc.fade) now+='<br><span style="font-size:11px;color:#8792a6">前後の代表時点に行が無いため消灯へ遷移中（表示上の処理）</span>';
+  } else {
+    now='<span style="color:#8792a6">この年にはスコア行がありません（＝光らせない）</span>';
+  }
+  document.getElementById('pNow').innerHTML=now;
+
+  var nr=nearestRow(pid, state.year);
+  renderWhy(nr);
+
+  // 出来事
+  var evs=(EVP[pid]||[]).slice().sort(function(a,b){return a.y-b.y;});
+  var html='';
+  evs.forEach(function(e){
+    var d=DIRC[e.d]||DIRC[0];
+    var near=Math.abs(e.y-state.year)<=40;
+    html+='<div class="ev" style="'+(near?'background:rgba(255,214,150,.06)':'')+'">'+
+      '<span class="y">'+(e.yr||e.y)+'</span>'+
+      '<span class="d '+d[1]+'">'+d[0]+'</span>'+
+      '<span class="x">'+esc(e.x)+'</span></div>';
+  });
+  document.getElementById('pEvents').innerHTML = html || '<div class="meta">記録なし</div>';
+
+  document.getElementById('pSrc').innerHTML =
+    'スコアと評価理由: <code>data/scores/*.md</code>（各行に score_confidence と出典番号つき）<br>'+
+    '出来事: <code>data/db/historical_events.csv</code>（各行 source_ids / source_ticket つき）<br>'+
+    '地点座標: <code>data/db/places.csv</code>（location_confidence つき）<br>'+
+    '<span style="color:#7d879a">※本画面は要旨のみ。原文・出典番号は上記の正本ファイルを参照。</span>';
+
+  drawSpark(rows, sc);
+}
+function esc(s){ return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+
+// ------------------------------------------------------------
+// display_texts（一般向け要約文）が無い地点向けの簡易サニタイズ表示。
+// data/scores/*.md の score_reason は研究者向けの専門用語（percentile・
+// confidence・betweenness・下限推定・◯帯・Tier2 等）を含むため、それらを
+// 一般ユーザー向けにはできるだけ取り除いて表示する（完全な言い換えではなく
+// あくまで簡易処理。正式な言い換え文は display_texts.csv 側で順次追加予定）。
+var BAND_WORD_RE = /[SABCD]帯/g;
+function sanitizeReason(s){
+  if(!s) return '（この地点の詳しい解説はまだありません）';
+  var t = String(s);
+  t = t.replace(/\*\*/g,'');
+  // 括弧内がラテン文字・数字主体（6割以上）の断片は専門的な記号とみなし削除
+  t = t.replace(/[（(]([^（）()]*)[)）]/g, function(m, inner){
+    if(!inner) return '';
+    var latin = (inner.match(/[A-Za-z0-9.\-;=]/g)||[]).length;
+    return (latin / inner.length > 0.6) ? '' : m;
+  });
+  t = t.replace(/確信度\s*[A-D]/g, '');
+  t = t.replace(BAND_WORD_RE, '');
+  t = t.replace(/betweenness\s*[\d.]+/gi, '');
+  t = t.replace(/degree\s*[\d.]+/gi, '');
+  t = t.replace(/Tier\s*[12]N?/gi, '');
+  t = t.replace(/percentile/gi, '');
+  t = t.replace(/confidence/gi, '');
+  t = t.replace(/下限推定/g, '');
+  t = t.replace(/序数/g, '');
+  t = t.replace(/exists_at/gi, '');
+  // 掃除: 空括弧・重複読点・余分な空白
+  t = t.replace(/[（(]\s*[)）]/g, '');
+  t = t.replace(/\s{2,}/g, ' ');
+  t = t.replace(/[・、]{2,}/g, '、');
+  t = t.replace(/^[、。・\s]+/, '');
+  t = t.trim();
+  return t || '（この地点の詳しい解説はまだありません）';
+}
+
+// ------------------------------------------------------------
+// details.js（display_texts.csv の detail_note＝専門情報全文）は
+// bundle.jsから分離済み。Layer 2「＋専門的な評価根拠を表示」を
+// 初めてクリックした時だけ動的<script>挿入で読み込む（file://直開き互換）。
+var detailsLoaded=false, detailsLoading=false, detailsCbs=[];
+function ensureDetails(cb){
+  if(detailsLoaded){ cb(); return; }
+  detailsCbs.push(cb);
+  if(detailsLoading) return;
+  detailsLoading=true;
+  var s=document.createElement('script');
+  s.src='data/details.js?v=4';
+  s.onload=function(){ detailsLoaded=true; detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
+  s.onerror=function(){ detailsLoading=false; detailsLoaded=true; window.PMAP_DETAILS=window.PMAP_DETAILS||{};
+    detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
+  document.body.appendChild(s);
+}
+function eraOfSrc(src){
+  return (src==='modern_tier2'||src==='modern_tier2_national') ? 'modern' : src;
+}
+
+function renderWhy(nr){
+  var pWhy=document.getElementById('pWhy'),
+      toggle=document.getElementById('pWhyToggle'),
+      detail=document.getElementById('pWhyDetail');
+  toggle.classList.remove('open'); detail.classList.remove('open');
+  toggle.textContent='＋ 専門的な評価根拠を表示';
+  if(!nr){ pWhy.textContent='—'; toggle.style.display='none'; detail.textContent=''; return; }
+
+  var plain = nr.dp;                         // display_texts.csv の一般向け要約（あれば最優先）
+  var isT2N = nr.tier==='T2N';
+  if(!plain) plain = isT2N ? nr.why : sanitizeReason(nr.why);  // T2Nは既にbuild時点で定型文化済み
+
+  pWhy.textContent = plain;
+
+  // 専門的な原文（score/band/confidence とscore_reason）は折りたたみで残す。
+  // T2Nはbuild_ui_data.pyがwhy0に元のscore_reasonを退避している。
+  var raw = isT2N ? nr.why0 : nr.why;
+  var head = '［代表時点 '+nr.t+' / スコア '+nr.s+'（'+nr.b+'帯）/ 確信度 '+(nr.c||'—')+'］\n'+(raw||'');
+  if(raw){
+    detail.textContent = head;
+    toggle.style.display='block';
+    toggle.onclick=function(){
+      var willOpen=!detail.classList.contains('open');
+      if(!willOpen){
+        detail.classList.remove('open');
+        toggle.textContent='＋ 専門的な評価根拠を表示';
+        return;
+      }
+      toggle.textContent='読み込み中…';
+      ensureDetails(function(){
+        if(state.sel!==nr.p) return;  // 読み込み中に別地点へ切り替わっていたら何もしない
+        var key = nr.p+'|'+eraOfSrc(nr.src);
+        var dn = (window.PMAP_DETAILS && window.PMAP_DETAILS[key]) || '';
+        detail.textContent = dn ? head+'\n\n'+dn : head;
+        detail.classList.add('open');
+        toggle.textContent='－ 閉じる';
+      });
+    };
+  } else {
+    toggle.style.display='none';
+  }
+}
+
+function drawSpark(rows, sc){
+  var c=document.getElementById('spark');
+  var w=c.clientWidth||330, h=74;
+  c.width=w*DPR; c.height=h*DPR;
+  var g=c.getContext('2d'); g.setTransform(DPR,0,0,DPR,0,0);
+  g.clearRect(0,0,w,h);
+  var pad=6, iw=w-pad*2, ih=h-pad*2-10;
+  // 全代表時点の薄い目盛り
+  g.strokeStyle='#151d2b';
+  TPS.forEach(function(t){ var x=pad+yearToPos(t.y)*iw;
+    g.beginPath(); g.moveTo(x,pad); g.lineTo(x,pad+ih); g.stroke(); });
+  // 折れ線（行がある時点だけ・非連続は途切れさせる）
+  g.strokeStyle='#ffd9a0'; g.lineWidth=1.4; g.beginPath();
+  var prevIdx=null, started=false;
+  rows.forEach(function(r){
+    var idx=tpIndex[r.y];
+    var x=pad+yearToPos(r.y)*iw, y=pad+ih-(r.s/100)*ih;
+    if(started && prevIdx!==null && idx-prevIdx===1) g.lineTo(x,y);
+    else g.moveTo(x,y);
+    started=true; prevIdx=idx;
+  });
+  g.stroke();
+  rows.forEach(function(r){
+    var x=pad+yearToPos(r.y)*iw, y=pad+ih-(r.s/100)*ih;
+    g.fillStyle='#ffe9c4'; g.beginPath(); g.arc(x,y,1.8,0,6.2832); g.fill();
+  });
+  // 現在位置
+  var cxp=pad+yearToPos(state.year)*iw;
+  g.strokeStyle='rgba(255,255,255,.45)'; g.beginPath();
+  g.moveTo(cxp,pad-2); g.lineTo(cxp,pad+ih+4); g.stroke();
+  if(sc && sc.v>0){
+    var cy=pad+ih-(sc.v/100)*ih;
+    g.fillStyle='#fff'; g.beginPath(); g.arc(cxp,cy,2.6,0,6.2832); g.fill();
+  }
+  g.fillStyle='#5b667c'; g.font='9px sans-serif';
+  g.fillText('0', 1, pad+ih+2); g.fillText('100', 1, pad+7);
+  document.getElementById('sparkNote').textContent =
+    '点＝代表時点の実測スコア（'+rows.length+'点）。線が途切れる区間はその時点にスコア行が無い（存在しない／未評価）ことを示す。';
+}
+
+// ============================================================ 起動
+window.addEventListener('resize',resize);
+document.addEventListener('keydown',function(e){
+  if(e.key==='ArrowRight'){ state.year=posToYear(yearToPos(state.year)+0.004); draw(); }
+  if(e.key==='ArrowLeft'){ state.year=posToYear(yearToPos(state.year)-0.004); draw(); }
+  if(e.key==='Escape'){ modal.classList.remove('open'); closePanel(); draw(); }
+});
+resize();
+state.year=1700; draw();
+if(!sessionStorage.getItem('pmap_seen')){ modal.classList.add('open'); try{sessionStorage.setItem('pmap_seen','1');}catch(_){} }
+})();
+</script>
+</body>
+</html>
