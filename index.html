@@ -210,8 +210,8 @@
   <p style="text-align:right;margin:0"><button class="btn" id="mClose">閉じる</button></p>
 </div></div>
 
-<script src="coastline.js?v=10"></script>
-<script src="data/bundle.js?v=10"></script>
+<script src="coastline.js?v=11"></script>
+<script src="data/bundle.js?v=11"></script>
 <script>
 (function(){
 "use strict";
@@ -224,15 +224,33 @@ var TY  = TPS.map(function(o){return o.y;});
 var Y0 = TY[0], Y1 = TY[TY.length-1];
 
 // ---- URLパラメータ（?curve=... で輝度カーブを切替。§3の比較検証用）
+// decodeURIComponent は壊れた%エンコードで例外を投げるため、1キーずつtry/catchで
+// 包み、失敗した項目だけを無視する（レビュー指摘: URLパラメータの頑健化）。
 var QS = (function(){
   var o={};
   (location.search||'').replace(/^\?/,'').split('&').forEach(function(kv){
     if(!kv) return;
     var i=kv.indexOf('='), k=i<0?kv:kv.slice(0,i);
-    o[decodeURIComponent(k)] = i<0 ? '1' : decodeURIComponent(kv.slice(i+1).replace(/\+/g,' '));
+    var rawV = i<0 ? '1' : kv.slice(i+1).replace(/\+/g,' ');
+    try{
+      var key = decodeURIComponent(k);
+      var val = i<0 ? '1' : decodeURIComponent(rawV);
+      o[key]=val;
+    }catch(_){ /* 壊れた%エンコードは無視 */ }
   });
   return o;
 })();
+// 数値URLパラメータ用: parseFloatしてisFinite・任意の妥当範囲を満たさなければ既定値へ。
+function safeFloat(raw, def, lo, hi){
+  var n = parseFloat(raw);
+  if(!isFinite(n)) return def;
+  if(lo!==undefined && n<lo) return def;
+  if(hi!==undefined && n>hi) return def;
+  return n;
+}
+// デバッグ用グローバル（window.PL）とカーブ切替（?curve=）は既定では無効化し、
+// ?debug=1 のときだけ有効にする（レビュー指摘: window への公開を最小化）。
+var DEBUG = QS.debug==='1';
 
 // 色＝場所の種類（§13: 彩度はこれ以上上げない）。scale/core/softは形の性格。
 var TYPE = {
@@ -271,8 +289,9 @@ function curveAnchor(s){
   }
   return 1;
 }
-var GAMMA = parseFloat(QS.g||'3.6');            // ?curve=gamma&g=3.6
-var EXPK  = parseFloat(QS.k||'5.2');            // ?curve=exp&k=5.2
+var GAMMA = safeFloat(QS.g, 3.6, 0.05, 50);     // ?curve=gamma&g=3.6
+var EXPK  = safeFloat(QS.k, 5.2, -50, 50);      // ?curve=exp&k=5.2
+if(EXPK===0) EXPK=5.2;                          // k=0はcurveExpが0除算になるため除外
 function curveGamma(s){ return Math.pow(Math.max(0,Math.min(100,s))/100, GAMMA); }
 function curveExp(s){ var x=Math.max(0,Math.min(100,s))/100;
   return (Math.exp(EXPK*x)-1)/(Math.exp(EXPK)-1); }
@@ -283,7 +302,7 @@ var CURVES = {
   anchor:curveAnchor, gamma:curveGamma, power:curveGamma, exp:curveExp,
   log:curveLog, linear:curveLinear, drc:curveAnchor, percentile:curveAnchor
 };
-var CURVE_NAME = (QS.curve && CURVES[QS.curve]) ? QS.curve : 'anchor';
+var CURVE_NAME = (DEBUG && QS.curve && CURVES[QS.curve]) ? QS.curve : 'anchor';
 var curveFn = CURVES[CURVE_NAME];
 // フレーム全体を見てからでないと決まらない方式（DRC / percentile）は後段で適用
 function applyFrameCurve(lights){
@@ -365,14 +384,41 @@ Object.keys(SER).forEach(function(k){ SER[k].sort(function(a,b){return a.y-b.y;}
 var EVP = {};   // place_id -> events
 D.events.forEach(function(e){ (EVP[e.p]=EVP[e.p]||[]).push(e); });
 
-// 閉山/消滅イベントの初出年（役割の時代妥当性・§VIZ_POLICY追補 2026-09-04(a)）。
-// 「役割が消えたのに役割色で光る」対策: mine役割は閉山以降ここを見て'minor'へ遷移する。
+// 閉山/再開イベントの時系列（役割の時代妥当性・§VIZ_POLICY追補 2026-09-04(a)、
+// レビュー指摘により再開を無視する旧CLOSED_AT実装から刷新）。
+// 「役割が消えたのに役割色で光る」対策: mine役割は閉山〜再開の状態遷移を見て
+// 'mine'⇔'minor' を切り替える（例: 宇多良炭鉱＝1885閉山→1935再開→1943閉山＝
+// mine→minor→mine→minor）。同年に開閉双方のイベントがある場合は、元データの
+// 並び順で後に現れるイベント（＝後勝ち）を採用する。
 var STRONG_CLOSE_RE = /close_mine|extinct/;
-var CLOSED_AT = {};   // place_id -> 最も早い閉山/消滅年
-D.events.forEach(function(e){
-  if(!STRONG_CLOSE_RE.test(e.ty)) return;
-  if(CLOSED_AT[e.p]===undefined || e.y<CLOSED_AT[e.p]) CLOSED_AT[e.p]=e.y;
-});
+var OPEN_MINE_RE = /open_mine|reopen/;
+var MINE_TRANS = {};   // place_id -> [{y, closed}] 昇順（yごとに最終状態1つ）
+(function(){
+  var byPid = {};
+  D.events.forEach(function(e, idx){
+    var isOpen = OPEN_MINE_RE.test(e.ty), isClose = STRONG_CLOSE_RE.test(e.ty);
+    if(!isOpen && !isClose) return;
+    (byPid[e.p]=byPid[e.p]||[]).push({y:e.y, idx:idx, closed:isClose});
+  });
+  Object.keys(byPid).forEach(function(pid){
+    var evs = byPid[pid].slice().sort(function(a,b){ return a.y-b.y || a.idx-b.idx; });
+    var out=[];
+    evs.forEach(function(e){
+      if(out.length && out[out.length-1].y===e.y) out[out.length-1].closed=e.closed;
+      else out.push({y:e.y, closed:e.closed});
+    });
+    MINE_TRANS[pid]=out;
+  });
+})();
+function isMineClosedAt(pid, y){
+  var tr=MINE_TRANS[pid]; if(!tr || !tr.length) return false;
+  var closed=false;
+  for(var i=0;i<tr.length;i++){
+    if(tr[i].y>y) break;
+    closed=tr[i].closed;
+  }
+  return closed;
+}
 
 var tpIndex = {}; TY.forEach(function(y,i){ tpIndex[y]=i; });
 
@@ -406,10 +452,21 @@ function boundingReprYears(y){
   }
   return [TY[TY.length-1],TY[TY.length-1]];
 }
-function inTopN(pid, y){
-  var bd=boundingReprYears(y);
-  var a=TOPN_SET[bd[0]], b=TOPN_SET[bd[1]];
-  return !!((a && a[pid]) || (b && b[pid]));
+// 区間内の補間位置(0=前の代表時点 / 1=次の代表時点)に応じて、選抜集合への
+// 所属を連続的にフェードさせる点灯強度の乗数（0..1）を返す。
+// 旧実装は前後どちらかの集合に入っていればOR結合で常時1（＝代表時点ちょうど
+// でも隣接時点の上位が混入し、選抜境界で不連続に点灯/消灯していた）。
+// レビュー指摘により、前集合に属する分は(1-u)、次集合に属する分はuで加算する
+// 方式へ変更＝代表時点ちょうどではその時点の上位Nのみ、非メンバーへの遷移は
+// 滑らかにフェードする。
+function topNMul(pid, y){
+  var bd=boundingReprYears(y), y0=bd[0], y1=bd[1];
+  var u = (y1>y0) ? Math.max(0,Math.min(1,(y-y0)/(y1-y0))) : 0;
+  var a=TOPN_SET[y0], b=TOPN_SET[y1];
+  var m=0;
+  if(a && a[pid]) m += (1-u);
+  if(b && b[pid]) m += u;
+  return m;
 }
 
 // ============================================================ 非線形の年スケール
@@ -709,10 +766,10 @@ var C_BAND_FLOOR = 30;
 function roleOf(p, s, tier, era, y){
   var kt=p.kt||'';
   if(p.k==='mine'){
-    // 閉山イベント以降は「鉱山の鋭い光」をやめ、小さな街の光(haze)へ遷移する
-    // （役割は時代とともに変わる＝§VIZ_POLICY追補(a)。色=種類は維持するので橙のまま）。
-    var closedY=CLOSED_AT[p.id];
-    if(closedY!==undefined && y>=closedY) return 'minor';
+    // 閉山中は「鉱山の鋭い光」をやめ、小さな街の光(haze)へ遷移する。再開すれば
+    // 再び'mine'に戻る（役割は時代とともに変わる＝§VIZ_POLICY追補(a)。
+    // 色=種類は維持するので橙のまま）。
+    if(isMineClosedAt(p.id, y)) return 'minor';
     return 'mine';
   }
   if(tier==='T2N' && s<58) return 'minor';                 // §6: score38級を独立した丸にしない
@@ -792,13 +849,14 @@ function computeLights(y){
   for(i=0;i<PLIST.length;i++){
     var p=PLIST[i], sc=scoreAt(p.id,y);
     if(!sc || sc.v<=0.5) continue;
-    if(!inTopN(p.id,y)) continue;               // 選抜: 各時点の上位のみ点灯
+    var topMul=topNMul(p.id,y);                  // 選抜: 各時点の上位のみ点灯（境界は連続フェード）
+    if(topMul<=0) continue;
     var tier=PLACE_TIER[p.id];
     var q=projFor(p.lon,p.lat);
     if(q[0]===null) continue;            // 現在の画面幅で非表示のインセット（例: mid/narrowの小笠原）
     var role=roleOf(p, sc.v, tier, era, y);
     var RS=ROLE_STYLE[role], T=TYPE[p.k]||TYPE.other;
-    var i0=curveFn(sc.v);
+    var i0=curveFn(sc.v)*topMul;
     if(tier==='T2N') i0*=T2N_BRIGHT_MUL;
     out.push({
       p:p, x:q[0], y:q[1], ins:q[2], sc:sc,
@@ -981,7 +1039,7 @@ function updateAboutTech(){
     '内訳: '+Object.keys(roles).map(function(k){return k+' '+roles[k];}).join(' / ')+'<br>'+
     '輝度カーブ: <b>'+CURVE_NAME+'</b>（既定 anchor＝100→1.00 / 80→0.45 / 60→0.18 / 40→0.06 / 20→0.015）'+
     '　露出 E='+exposureAt(state.year).toFixed(2)+'（ソフトニー・年に対して連続）<br>'+
-    '<span style="color:#6f7b90">URLに ?curve=anchor|gamma|power|exp|log|linear|drc|percentile を付けると切替（gamma/powerは &amp;g=、expは &amp;k= で係数指定）。?dur= で再生秒数。</span>';
+    '<span style="color:#6f7b90">?debug=1 を付けた上で ?curve=anchor|gamma|power|exp|log|linear|drc|percentile を指定すると切替（gamma/powerは &amp;g=、expは &amp;k= で係数指定）。?dur= で再生秒数。</span>';
 }
 
 // ============================================================ タイムライン
@@ -1073,7 +1131,7 @@ tcv.addEventListener('pointercancel',function(){dragging=false;});
 // ============================================================ §10 再生＝主要体験
 // 30-60秒で日本史を眺めるモード。時間配分は非線形（古代は速く、近世以降ゆっくり）。
 // スライダー位置（yearToPos）とは別に、再生専用の「時間→年」の割り当てを持つ。
-var PLAY_DUR = Math.max(20, Math.min(120, parseFloat(QS.dur||'44')));
+var PLAY_DUR = Math.max(20, Math.min(120, safeFloat(QS.dur, 44)));
 var PLAY_KNOTS = [                    // [year, 再生時間に占める位置 0-1]
   [-3000,0.000],[-100,0.070],[700,0.150],[1200,0.245],[1450,0.310],
   [1600,0.385],[1700,0.455],[1800,0.520],[1868,0.595],
@@ -1212,8 +1270,8 @@ function renderPanel(){
   var p=PL[pid], sc=scoreAt(pid,state.year), rows=SER[pid]||[];
   document.getElementById('pName').textContent=p.n;
   document.getElementById('pMeta').innerHTML=
-    '<span class="tag">'+p.kt+'</span>'+(p.pref||'')+
-    (p.hn? '<br>別称: '+p.hn : '')+
+    '<span class="tag">'+esc(p.kt)+'</span>'+esc(p.pref||'')+
+    (p.hn? '<br>別称: '+esc(p.hn) : '')+
     '<br>座標 '+p.lat.toFixed(3)+', '+p.lon.toFixed(3);
 
   var nt=nearestTP(state.year);
@@ -1223,7 +1281,7 @@ function renderPanel(){
       (sc.interp? ' <span style="color:#f0b96b">前後の年代からの推定表示</span>'
                  : ' <span style="color:#9fd8a8">調査にもとづく値</span>');
     if(sc.stepped) now+='<br><span style="font-size:11px;color:#e0b98a">直近の段差: '+
-      fmtYear(sc.stepped.y)+' '+sc.stepped.x+'</span>';
+      fmtYear(sc.stepped.y)+' '+esc(sc.stepped.x)+'</span>';
     if(sc.fade) now+='<br><span style="font-size:11px;color:#8792a6">この年代の前後に評価がないため、光が弱まっています</span>';
   } else {
     now='<span style="color:#8792a6">この年代の記録・評価はありません</span>';
@@ -1303,7 +1361,7 @@ function ensureDetails(cb){
   if(detailsLoading) return;
   detailsLoading=true;
   var s=document.createElement('script');
-  s.src='data/details.js?v=10';
+  s.src='data/details.js?v=11';
   s.onload=function(){ detailsLoaded=true; detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
   s.onerror=function(){ detailsLoading=false; detailsLoaded=true; window.PMAP_DETAILS=window.PMAP_DETAILS||{};
     detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
@@ -1403,15 +1461,18 @@ document.addEventListener('keydown',function(e){
   if(e.key==='ArrowLeft'){ state.year=posToYear(yearToPos(state.year)-0.004); draw(); }
   if(e.key==='Escape'){ modal.classList.remove('open'); closePanel(); draw(); }
 });
-// Visual QA / デバッグ用の外部フック（?year=1600 でも指定可）
-window.PL = {
-  setYear:function(y){ if(state.playing) setPlaying(false); state.year=+y; draw(); return fmtYear(state.year); },
-  getYear:function(){ return state.year; },
-  lights:function(){ return lightCache; },
-  curve:CURVE_NAME, curveFn:curveFn, eraOf:eraOf, jpEraOf:jpEraOf,
-  play:function(on){ setPlaying(on!==false); },
-  closedAt:CLOSED_AT, roleOf:roleOf
-};
+// Visual QA / デバッグ用の外部フック。既定では window を汚さず、?debug=1 の
+// ときだけ公開する（レビュー指摘: デバッグ用グローバルの公開を最小化）。
+if(DEBUG){
+  window.PL = {
+    setYear:function(y){ if(state.playing) setPlaying(false); state.year=+y; draw(); return fmtYear(state.year); },
+    getYear:function(){ return state.year; },
+    lights:function(){ return lightCache; },
+    curve:CURVE_NAME, curveFn:curveFn, eraOf:eraOf, jpEraOf:jpEraOf,
+    play:function(on){ setPlaying(on!==false); },
+    mineTrans:MINE_TRANS, isMineClosedAt:isMineClosedAt, roleOf:roleOf, topNMul:topNMul
+  };
+}
 resize();
 state.year = QS.year!==undefined ? (+QS.year||1700) : 1700;
 draw();
