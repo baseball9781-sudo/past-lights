@@ -31,16 +31,29 @@
   .btn:hover{border-color:#3d4c68;background:rgba(28,36,54,.9)}
   .btn.on{border-color:#6b8dc0;color:#cfe2ff;background:rgba(30,48,74,.9)}
 
-  /* ---- 現在年 HUD ---- */
+  /* ---- 現在年 HUD（§12: 年と時代名だけ） ---- */
   #hud{position:absolute;left:20px;bottom:16px;z-index:3;pointer-events:none}
   #hud .yr{font-size:30px;font-weight:300;letter-spacing:.04em;line-height:1.1;color:#fff2dc}
-  #hud .sub{font-size:11px;color:var(--dim);margin-top:3px;letter-spacing:.06em}
-  #hud .interp{color:#f0b96b}
+  #hud .era{font-size:13px;color:#b9c6dc;margin-top:2px;letter-spacing:.14em}
 
-  /* ---- 免責の常時表示 ---- */
-  #note{position:absolute;right:16px;bottom:14px;z-index:3;max-width:340px;
-    font-size:10px;line-height:1.6;color:#6f7b90;text-align:right}
-  #note b{color:#93a1b8;font-weight:600}
+  /* ---- 免責（§14: 右下に小さく維持） ---- */
+  #note{position:absolute;right:16px;bottom:14px;z-index:3;max-width:300px;
+    font-size:10px;line-height:1.6;color:#67728a;text-align:right}
+  #note b{color:#8794aa;font-weight:600}
+
+  /* ---- 再生中の時代名フェード（§10） ---- */
+  #eraFade{position:absolute;left:0;right:0;top:38%;z-index:4;text-align:center;
+    pointer-events:none;opacity:0;transition:opacity .9s ease}
+  #eraFade.show{opacity:1}
+  #eraFade .e{font-size:58px;font-weight:200;letter-spacing:.32em;color:rgba(255,238,208,.30);
+    text-shadow:0 0 40px rgba(255,214,150,.18)}
+  #eraFade .y{font-size:13px;letter-spacing:.30em;color:rgba(210,222,242,.30);margin-top:6px}
+
+  /* ---- 再生中はHUDを最小化（§10） ---- */
+  body.playing #legend,body.playing #note,body.playing #title p,
+  body.playing #btnEdges,body.playing #btnLabel,body.playing #btnInfo{opacity:0;
+    transition:opacity .5s ease;pointer-events:none}
+  #legend,#note,#title p,#btnEdges,#btnLabel,#btnInfo{transition:opacity .5s ease}
 
   /* ---- スライダー ---- */
   #timebar{height:92px;flex:none;background:linear-gradient(#070a11,#04060c);
@@ -92,6 +105,9 @@
   #modal .warn{background:rgba(255,190,110,.07);border-left:2px solid #d8a35e;padding:10px 14px;
     color:#f0d7b0}
   #modal small{color:#7d879a;font-size:11px;line-height:1.8;display:block}
+  #modal .tech{border-top:1px dotted #26314a;margin:14px 0 12px;padding-top:10px;
+    font-size:11px;line-height:1.85;color:#8894aa;font-variant-numeric:tabular-nums}
+  #modal .tech b{color:#aeb8c9;font-weight:600}
   #legend{position:absolute;left:20px;bottom:78px;z-index:3;font-size:10.5px;color:#8792a6;
     line-height:1.9;pointer-events:none}
   #legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;
@@ -117,16 +133,15 @@
     <div id="legend">
       <div><i style="background:#ffe1a8"></i>都市・城下町　<i style="background:#a8ccff"></i>港</div>
       <div><i style="background:#ffa860"></i>鉱山　<i style="background:#cfd8e8"></i>宿場・結節点</div>
-      <div style="margin-top:2px;color:#5f6b80">色は場所の種類（都市/港/鉱山/宿場）、明るさはその時代の中での重要度を表します</div>
     </div>
+    <div id="eraFade"><div class="e" id="eraFadeName"></div><div class="y" id="eraFadeYear"></div></div>
     <div id="hud">
       <div class="yr" id="hudYear">—</div>
-      <div class="sub" id="hudSub">—</div>
+      <div class="era" id="hudEra">—</div>
     </div>
     <div id="note">
       <b>この光は実際の夜間照明ではありません。</b><br>
-      当時の人口・交易・交通・産業・政治的重要性などから推定した「人間活動の明るさ」です。<br>
-      <span id="topnNote">各時代の上位200地点を表示</span>
+      人口・交易・交通・産業・政治的重要性から推定した「人間活動の明るさ」です。
     </div>
     <div id="hover"></div>
     <div id="panel">
@@ -156,14 +171,16 @@
   <h3>この光について</h3>
   <p class="warn">この光は実際の夜間照明ではありません。当時の人口・交易・交通・産業・政治的重要性などから推定した「人間活動の明るさ」です。</p>
   <p>各代表時点（BC3000〜2026の32時点）で、地点ごとに相対スコア（0-100）とバンド（S/A/B/C/D）を人手で付与しています。光の明るさ・大きさはそのスコアから機械的に変換したもので、スコアそのものではありません。</p>
-  <p>代表時点と代表時点のあいだの年は<b>線形補間</b>で表示し、その地点に記録のある出来事の年には段差をつけています。補間中の年は画面左下に「（補間）」と表示します。スコアの無い地点は光りません。</p>
-  <p>また、実際の人間活動には濃淡の連続的な広がりがある一方、詳しく調査できた地点（Tier1）は各時代とも限られた数しかありません。選抜された地点だけが目立ってしまう偏りを避けるため、<b>各代表時点でスコア上位<span id="topnNoteModal">200</span>地点のみを点灯</b>させています（該当地点数がそれに満たない時代は全地点を点灯）。上位から漏れた地点も、地図上のその位置をクリックすれば詳細パネルは開けます。</p>
+  <p>代表時点と代表時点のあいだの年は<b>線形補間</b>で表示し、その地点に記録のある出来事の年には段差をつけています。スコアの無い地点は光りません。</p>
+  <p>また、実際の人間活動には濃淡の連続的な広がりがある一方、詳しく調査できた地点（Tier1）は各時代とも限られた数しかありません。選抜された地点だけが目立ってしまう偏りを避けるため、<b>各代表時点でスコア上位の地点のみを点灯</b>させています（該当地点数がそれに満たない時代は全地点を点灯）。上位から漏れた地点も、地図上のその位置をクリックすれば詳細パネルは開けます。</p>
+  <p>色は場所の種類（都市・城下町／港／鉱山／宿場・結節点）、明るさはその時代の中での重要度です。明るさはスコアを<b>強く非線形に圧縮</b>して割り当てているため、スコアが半分の地点は「半分の明るさ」ではなくずっと暗く見えます。また時代ごとに描き方を変えており、古代・中世は点、近世は点と交通路、近代以降は主要都市を面（都市圏の広がり）として描きます。</p>
+  <div class="tech" id="mTech"></div>
   <p><small id="mSrc"></small></p>
   <p style="text-align:right;margin:0"><button class="btn" id="mClose">閉じる</button></p>
 </div></div>
 
-<script src="coastline.js?v=2"></script>
-<script src="data/bundle.js?v=4"></script>
+<script src="coastline.js?v=5"></script>
+<script src="data/bundle.js?v=5"></script>
 <script>
 (function(){
 "use strict";
@@ -175,6 +192,18 @@ var TPS = D.meta.timepoints;                 // [{t,y}] 昇順
 var TY  = TPS.map(function(o){return o.y;});
 var Y0 = TY[0], Y1 = TY[TY.length-1];
 
+// ---- URLパラメータ（?curve=... で輝度カーブを切替。§3の比較検証用）
+var QS = (function(){
+  var o={};
+  (location.search||'').replace(/^\?/,'').split('&').forEach(function(kv){
+    if(!kv) return;
+    var i=kv.indexOf('='), k=i<0?kv:kv.slice(0,i);
+    o[decodeURIComponent(k)] = i<0 ? '1' : decodeURIComponent(kv.slice(i+1).replace(/\+/g,' '));
+  });
+  return o;
+})();
+
+// 色＝場所の種類（§13: 彩度はこれ以上上げない）。scale/core/softは形の性格。
 var TYPE = {
   urban:{col:[255,225,170], scale:1.00, core:0.55, soft:1.00},
   port :{col:[168,205,255], scale:0.80, core:0.60, soft:0.95},
@@ -182,15 +211,117 @@ var TYPE = {
   hub  :{col:[207,216,232], scale:0.46, core:0.85, soft:0.60},
   other:{col:[196,206,224], scale:0.58, core:0.65, soft:0.75}
 };
-var BAND_FLOOR = {S:0.74, A:0.54, B:0.36, C:0.18, D:0.10};
 function bandOf(s){ return s>=88?'S': s>=70?'A': s>=50?'B': s>=30?'C':'D'; }
 // T2N（全市区町村機械生成のTier2 National）は研究地点(T1/T2)よりわずかに
 // 控えめに描画する（研究済み地点をわずかに優先＝ユーザー指示）。
 var T2N_BRIGHT_MUL = 0.8, T2N_RADIUS_MUL = 0.85;
 // 各代表時点で光らせる地点数の上限（スコア上位のみ点灯。これに満たない時代は全部点灯）。
 // 選抜バイアス（Tier1調査済みの209地点だけが常に目立つ）を消すための主要機構。
-var TOPN = 200;
+// 現代は「その他の微光」を面として敷くため上限を広げる（§9）。
+function topNFor(y){ return y>=1950 ? 520 : 200; }
 var CONF_RANK = {A:4, B:3, C:2, D:1, '':0};
+
+// ============================================================ §3 非線形輝度圧縮
+// score(0-100) -> intensity(0-1)。既定は方針書の例示カーブをアンカーにした
+// 対数空間内挿（100→1.00 / 80→0.45 / 60→0.18 / 40→0.06 / 20→0.015）。
+// BAND_FLOOR（バンドごとの明るさ下限）は廃止した。バンド帯ごとに床を敷くと
+// 圧縮カーブが打ち消され「安曇野38がそれなりに明るい」問題が復活するため。
+var CURVE_ANCHORS = [[20,0.015],[40,0.06],[60,0.18],[80,0.45],[100,1.0]];
+function curveAnchor(s){
+  if(s<=0) return 0;
+  if(s>=100) return 1;
+  if(s<=20) return 0.015*Math.pow(s/20, 2);      // 20未満は二乗で0へ落とす
+  for(var i=1;i<CURVE_ANCHORS.length;i++){
+    var a=CURVE_ANCHORS[i-1], b=CURVE_ANCHORS[i];
+    if(s<=b[0]){
+      var f=(s-a[0])/(b[0]-a[0]);
+      return Math.exp(Math.log(a[1]) + f*(Math.log(b[1])-Math.log(a[1])));
+    }
+  }
+  return 1;
+}
+var GAMMA = parseFloat(QS.g||'3.6');            // ?curve=gamma&g=3.6
+var EXPK  = parseFloat(QS.k||'5.2');            // ?curve=exp&k=5.2
+function curveGamma(s){ return Math.pow(Math.max(0,Math.min(100,s))/100, GAMMA); }
+function curveExp(s){ var x=Math.max(0,Math.min(100,s))/100;
+  return (Math.exp(EXPK*x)-1)/(Math.exp(EXPK)-1); }
+function curveLog(s){ var x=Math.max(0,Math.min(100,s))/100;
+  return Math.log(1+19*x)/Math.log(20); }        // 比較用（圧縮しない＝悪い例）
+function curveLinear(s){ return Math.max(0,Math.min(100,s))/100; }  // 比較用（現状の問題を再現）
+var CURVES = {
+  anchor:curveAnchor, gamma:curveGamma, power:curveGamma, exp:curveExp,
+  log:curveLog, linear:curveLinear, drc:curveAnchor, percentile:curveAnchor
+};
+var CURVE_NAME = (QS.curve && CURVES[QS.curve]) ? QS.curve : 'anchor';
+var curveFn = CURVES[CURVE_NAME];
+// フレーム全体を見てからでないと決まらない方式（DRC / percentile）は後段で適用
+function applyFrameCurve(lights){
+  if(!lights.length) return;
+  if(CURVE_NAME==='drc'){
+    var mx=0; lights.forEach(function(L){ if(L.intensity>mx) mx=L.intensity; });
+    if(mx>0) lights.forEach(function(L){ L.intensity=Math.pow(L.intensity/mx, 0.85); });
+  }else if(CURVE_NAME==='percentile'){
+    var sorted=lights.slice().sort(function(a,b){return a.score-b.score;}), n=sorted.length;
+    sorted.forEach(function(L,i){ L.intensity=curveAnchor(100*(i+0.5)/n); });
+  }
+}
+
+// ============================================================ §5 時代とRenderer
+// era は「描き方の切替」であって歴史区分そのものではない（演出ではなく空間構造の変化）。
+//   ancient/medieval : 点
+//   early_modern     : 点 + 交通網
+//   modern           : 点 + 線 + 主要都市の面化
+//   contemporary     : 面主体（都市圏 + 弱い地方光）
+var ERAS = [
+  {k:'ancient',      until:1185},
+  {k:'medieval',     until:1573},
+  {k:'early_modern', until:1868},
+  {k:'modern',       until:1945},
+  {k:'contemporary', until:1e9}
+];
+function eraOf(y){ for(var i=0;i<ERAS.length;i++) if(y<ERAS[i].until) return ERAS[i].k; return 'contemporary'; }
+// 露出（フレーム全体のゲイン）。圧縮カーブは「地点間の比」を作るためのもので、
+// 画面全体の明るさは時代ごとの露出で別に決める＝カメラの露出補正に相当する。
+// これが無いと、最高スコアが95前後しか出ない前近代が一様に暗くなりすぎる。
+// 単純な倍率だと上位が飽和して階層が潰れるので、ソフトニー i' = 1-(1-i)^E を使う。
+// 上限1を超えず、順序も比の向きも保ったまま中間調だけが持ち上がる。
+// era ごとの段ではなく年に対して連続な値にする（再生中に時代境界で明るさが
+// 跳ねると「光が減った」ように見えてしまうため）。
+var EXPO_KNOTS = [
+  [-3000,2.85],[1185,2.75],[1573,2.55],[1700,2.45],[1800,2.35],[1868,2.20],
+  [1900,2.10],[1920,2.00],[1945,1.95],[1970,1.90],[1980,1.35],[2000,1.15],[2026,1.10]
+];
+function exposureAt(y){
+  if(y<=EXPO_KNOTS[0][0]) return EXPO_KNOTS[0][1];
+  for(var i=1;i<EXPO_KNOTS.length;i++){
+    if(y<=EXPO_KNOTS[i][0]){
+      var a=EXPO_KNOTS[i-1], b=EXPO_KNOTS[i];
+      return a[1]+(b[1]-a[1])*(y-a[0])/((b[0]-a[0])||1);
+    }
+  }
+  return EXPO_KNOTS[EXPO_KNOTS.length-1][1];
+}
+function expose(i, E){
+  if(E<=1.0001) return i;
+  return 1-Math.pow(1-Math.max(0,Math.min(1,i)), E);
+}
+var MIN_INTENSITY = 0.04;
+// 面（footprint）を許すのは近代以降（§5）。近世までは点で描く。
+var ERA_FACE = {ancient:false, medieval:false, early_modern:false, modern:true, contemporary:true};
+// 交通網の自動表示（トグルとは別の、常時うっすら見える下地）
+var ERA_NET = {ancient:0, medieval:0, early_modern:0.20, modern:0.42, contemporary:0.18};
+
+// ---- 元号・時代名（§12: 全国画面は「1600年／江戸時代」級のみ）
+var JP_ERAS = [
+  [-1e9,'縄文時代'],[-300,'弥生時代'],[250,'古墳時代'],[592,'飛鳥時代'],[710,'奈良時代'],
+  [794,'平安時代'],[1185,'鎌倉時代'],[1336,'室町時代'],[1467,'戦国時代'],[1573,'安土桃山時代'],
+  [1603,'江戸時代'],[1868,'明治'],[1912,'大正'],[1926,'昭和'],[1989,'平成'],[2019,'令和']
+];
+function jpEraOf(y){
+  var name=JP_ERAS[0][1];
+  for(var i=0;i<JP_ERAS.length;i++){ if(y>=JP_ERAS[i][0]) name=JP_ERAS[i][1]; else break; }
+  return name;
+}
 
 // ============================================================ 索引
 var PL = {}, PLIST = D.places;
@@ -224,7 +355,7 @@ TY.forEach(function(y){
     return (CONF_RANK[b.c]||0) - (CONF_RANK[a.c]||0);
   });
   var set = {};
-  rows.slice(0, TOPN).forEach(function(r){ set[r.p]=true; });
+  rows.slice(0, topNFor(y)).forEach(function(r){ set[r.p]=true; });
   TOPN_SET[y] = set;
 });
 function boundingReprYears(y){
@@ -425,13 +556,17 @@ function drawInsets(){
   });
 }
 
+// §5: 近世以降は交通網を「常時うっすら」下地として描く（トグルONで通常の濃さ）。
+// 演出ではなく、点だけでは見えない「つながり」を時代の空間構造として出すため。
 function drawEdges(y){
-  if(!state.edges) return;
+  var gain = state.edges ? 1 : (ERA_NET[eraOf(y)]||0);
+  if(gain<=0) return;
   cx.save(); cx.lineCap='round';
   D.edges.forEach(function(e){
     if(y<e.s-40 || y>e.e+40) return;
     var doc = e.ev==='documented';
-    cx.strokeStyle = doc? 'rgba(120,165,215,0.20)' : 'rgba(120,150,190,0.11)';
+    cx.strokeStyle = doc? 'rgba(120,165,215,'+(0.20*gain).toFixed(3)+')'
+                        : 'rgba(120,150,190,'+(0.11*gain).toFixed(3)+')';
     cx.lineWidth = doc? 1.1 : 0.9;
     cx.setLineDash(doc? [] : [2,4]);
     cx.beginPath();
@@ -444,45 +579,212 @@ function drawEdges(y){
   cx.setLineDash([]); cx.restore();
 }
 
-function lightGeom(v){
-  var norm=Math.max(0,Math.min(1,v/100));
-  var bright=0.06+0.94*Math.sqrt(norm);
-  var r=6+30*Math.pow(norm,0.85);
-  return {bright:bright, r:r};
+// ============================================================ §2 光モデル
+// score から直接ピクセルを描かず、いったん light オブジェクトへ変換してから描く。
+//   { intensity, radius, footprint, role, era, ... }
+// intensity（明るさ）と radius（空間的な広がり）は別パラメータ。前近代の見え方を
+// 壊さないよう radius は従来どおり score から、intensity は圧縮カーブから作る。
+var ROLE_STYLE = {
+  metro:{rmul:0.86, coreMul:0.90, softMul:1.10, fp:'blob'},
+  city :{rmul:1.00, coreMul:1.00, softMul:1.00, fp:'point'},
+  port :{rmul:1.00, coreMul:1.00, softMul:1.00, fp:'coastal'},
+  mine :{rmul:0.88, coreMul:1.15, softMul:0.92, fp:'sharp'},
+  hub  :{rmul:1.00, coreMul:1.00, softMul:1.00, fp:'point'},
+  minor:{rmul:1.30, coreMul:0.00, softMul:1.45, fp:'haze'}
+};
+var BLOB_SPREAD_MAX = 1.65;      // 都市圏の広がりの上限（面が日本列島を覆わないための箍）
+var AGG_SIGMA_KM    = 32;        // 都市圏として束ねる近傍の半径
+
+function baseRadius(s){
+  var n=Math.max(0,Math.min(1,s/100));
+  return 6+30*Math.pow(n,0.85);              // 旧 lightGeom と同じ（1600年の幾何を保つ）
 }
-function computeLights(y){
-  var out=[];
-  for(var i=0;i<PLIST.length;i++){
-    var p=PLIST[i], sc=scoreAt(p.id,y);
-    if(!sc || sc.v<=0.5) continue;
-    if(!inTopN(p.id,y)) continue;               // 選抜: 各時点の上位TOPNのみ点灯
-    var g=lightGeom(sc.v);
-    var floor=BAND_FLOOR[bandOf(sc.v)];
-    var br=Math.max(floor, g.bright);
-    var r=g.r;
-    if(PLACE_TIER[p.id]==='T2N'){ br*=T2N_BRIGHT_MUL; r*=T2N_RADIUS_MUL; }
-    var q=projFor(p.lon,p.lat);
-    out.push({p:p, x:q[0], y:q[1], ins:q[2], v:sc.v, br:br, r:r, sc:sc});
+// 役割の判定。色（＝場所の種類 k）とは独立に、描き方だけを決める。
+function roleOf(p, s, tier, era){
+  var kt=p.kt||'';
+  if(p.k==='mine') return 'mine';
+  if(tier==='T2N' && s<58) return 'minor';                 // §6: score38級を独立した丸にしない
+  var urbanish=/capital|urban|castle_town|district|municipality/.test(kt);
+  if(ERA_FACE[era] && urbanish && s>=68) return 'metro';   // §5: 面化は近代以降だけ
+  if(p.k==='port' && !/capital|castle_town/.test(kt)) return 'port';
+  if(p.k==='hub') return 'hub';
+  return 'city';
+}
+// 決定的な擬似乱数（同じ地点は毎フレーム同じ形になる）
+function hash01(str, salt){
+  var h=2166136261, t=str+'|'+salt;
+  for(var i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); }
+  return ((h>>>0)%100000)/100000;
+}
+// 港＝海岸線に沿って扁平にするための、最寄り海岸の接線方向（地点ごとに一度だけ計算）
+var COAST_ANGLE={};
+function coastAngleOf(p){
+  if(COAST_ANGLE[p.id]!==undefined) return COAST_ANGLE[p.id];
+  var best=1e18, ang=0;
+  Object.keys(COAST).forEach(function(k){
+    var a=COAST[k];
+    for(var i=0;i+3<a.length;i+=2){
+      var dx=(a[i]-p.lon)*KC, dy=(a[i+1]-p.lat), d=dx*dx+dy*dy;
+      if(d<best){ best=d; ang=Math.atan2(-(a[i+3]-a[i+1]), (a[i+2]-a[i])*KC); }
+    }
+  });
+  COAST_ANGLE[p.id]=ang;
+  return ang;
+}
+// 都市圏の凝集度。近傍の光の強度をガウス重みで合計する。
+// 東京圏のように隣接自治体が多数光る場所ほど大きくなり、札幌・仙台のような
+// 単独の地方中枢では小さい ＝ §9 の階層をスコアを触らずに作る仕掛け。
+function computeAgglomeration(lights){
+  var CL=0.45, CT=0.35, grid={}, i;
+  for(i=0;i<lights.length;i++){
+    var L=lights[i], key=Math.floor(L.p.lon/CL)+','+Math.floor(L.p.lat/CT);
+    (grid[key]=grid[key]||[]).push(i);
+  }
+  for(i=0;i<lights.length;i++){
+    var A=lights[i], gx=Math.floor(A.p.lon/CL), gy=Math.floor(A.p.lat/CT), agg=0;
+    for(var a=-1;a<=1;a++) for(var b=-1;b<=1;b++){
+      var cell=grid[(gx+a)+','+(gy+b)]; if(!cell) continue;
+      for(var q=0;q<cell.length;q++){
+        var B=lights[cell[q]];
+        var dx=(B.p.lon-A.p.lon)*91.0, dy=(B.p.lat-A.p.lat)*111.0;
+        agg += B.intensity0*Math.exp(-(dx*dx+dy*dy)/(AGG_SIGMA_KM*AGG_SIGMA_KM));
+      }
+    }
+    A.agg=agg;
+  }
+}
+// 面（都市圏ブロブ）: 2-4個の楕円を決定的な配置で重ねる簡易表現。
+function makeBlobs(L){
+  var n = L.score>=88?4 : L.score>=78?3 : 2;
+  var id=L.p.id, axis=Math.PI*hash01(id,'axis'), out=[];
+  for(var i=0;i<n;i++){
+    var t=(n===1?0:i/(n-1)-0.5), j=hash01(id,'j'+i)-0.5;
+    var sp=L.radius*0.78*L.spread;
+    out.push({
+      dx:Math.cos(axis)*t*sp*1.15 + Math.cos(axis+1.5708)*j*sp*0.80,
+      dy:Math.sin(axis)*t*sp*1.15 + Math.sin(axis+1.5708)*j*sp*0.80,
+      r :0.62+0.30*hash01(id,'r'+i),
+      rx:1.05+0.30*hash01(id,'e'+i), ry:0.84,
+      rot:axis,
+      w :(i===0?1.0:0.66+0.24*hash01(id,'w'+i))
+    });
   }
   return out;
 }
+
+function computeLights(y){
+  var era=eraOf(y), expo=exposureAt(y), out=[], i;
+  for(i=0;i<PLIST.length;i++){
+    var p=PLIST[i], sc=scoreAt(p.id,y);
+    if(!sc || sc.v<=0.5) continue;
+    if(!inTopN(p.id,y)) continue;               // 選抜: 各時点の上位のみ点灯
+    var tier=PLACE_TIER[p.id];
+    var q=projFor(p.lon,p.lat);
+    var role=roleOf(p, sc.v, tier, era);
+    var RS=ROLE_STYLE[role], T=TYPE[p.k]||TYPE.other;
+    var i0=curveFn(sc.v);
+    if(tier==='T2N') i0*=T2N_BRIGHT_MUL;
+    out.push({
+      p:p, x:q[0], y:q[1], ins:q[2], sc:sc,
+      score:sc.v, v:sc.v, band:bandOf(sc.v), tier:tier,
+      era:era, role:role, footprint:RS.fp,
+      intensity0:i0, intensity:i0, agg:0, spread:1,
+      color:T.col, soft:T.soft*RS.softMul, core:T.core*RS.coreMul,
+      radius:baseRadius(sc.v)*T.scale*RS.rmul*(tier==='T2N'?T2N_RADIUS_MUL:1)*(q[2]?0.72:1),
+      blobs:null
+    });
+  }
+  applyFrameCurve(out);                          // drc / percentile はここで確定
+  if(ERA_FACE[era]) computeAgglomeration(out);
+  for(i=0;i<out.length;i++){
+    var L=out[i];
+    if(CURVE_NAME!=='drc' && CURVE_NAME!=='percentile') L.intensity=L.intensity0;
+    L.intensity=Math.min(1, Math.max(MIN_INTENSITY, expose(L.intensity, expo)));
+    if(L.role==='metro'){
+      L.spread=1+0.62*Math.min(BLOB_SPREAD_MAX, Math.sqrt(Math.max(0,L.agg-L.intensity0)));
+      L.blobs=makeBlobs(L);
+    }else if(L.role==='minor'){
+      L.intensity*=0.72;                         // 微光として地方の下地に溶かす
+    }
+    L.br=L.intensity; L.r=L.radius;               // 既存コード（ラベル/ヒットテスト）との互換
+  }
+  return out;
+}
+
+// ---- 描画プリミティブ
+function rgba(c,a){ return 'rgba('+c[0]+','+c[1]+','+c[2]+','+Math.max(0,a).toFixed(3)+')'; }
+function paintGlow(x,y,R,c,a,soft,rx,ry,rot,flat){
+  R=Math.max(3,R);
+  cx.save();
+  cx.translate(x,y);
+  if(rot) cx.rotate(rot);
+  if(rx!==1||ry!==1) cx.scale(rx,ry);
+  var g=cx.createRadialGradient(0,0,0,0,0,R);
+  if(flat){
+    // 中心を尖らせない「平たい」分布。密集地で多数重ねたとき、点の粒が並んだ
+    // ドット模様にならず連続した面として溶けるようにするため。
+    g.addColorStop(0,    rgba(c,0.30*a));
+    g.addColorStop(0.30, rgba(c,0.22*a*soft));
+    g.addColorStop(0.60, rgba(c,0.090*a*soft));
+    g.addColorStop(0.85, rgba(c,0.020*a*soft));
+    g.addColorStop(1,    rgba(c,0));
+  }else{
+    g.addColorStop(0,    rgba(c,0.85*a));
+    g.addColorStop(0.18, rgba(c,0.42*a*soft));
+    g.addColorStop(0.45, rgba(c,0.13*a*soft));
+    g.addColorStop(1,    rgba(c,0));
+  }
+  cx.fillStyle=g; cx.beginPath(); cx.arc(0,0,R,0,6.2832); cx.fill();
+  cx.restore();
+}
+function paintCore(L){
+  if(L.core<=0) return;
+  // コアの下限アルファ。点で描く時代は「弱い光も1点として読める」ことが大事なので
+  // 0.15 を敷く（従来どおり）。面で描く時代に同じ床を敷くと、市区町村の数だけ
+  // 白い粒が並んで格子模様になり「面」が壊れるので、ほぼ0にする。
+  var floor = ERA_FACE[L.era] ? 0.03 : 0.15;
+  var cr=Math.max(0.7, 1.1+2.0*Math.pow(L.score/100,1.2)*L.core);
+  cx.fillStyle='rgba(255,255,'+(L.p.k==='mine'?200:245)+','+
+    Math.min(1,0.55*L.intensity*L.core+floor).toFixed(3)+')';
+  cx.beginPath(); cx.arc(L.x,L.y,cr,0,6.2832); cx.fill();
+}
+// §4/§5 時代別Renderer: footprint ごとに描き分ける
+function drawLight(L){
+  var c=L.color, a=L.intensity;
+  switch(L.footprint){
+    case 'blob':                                   // 大都市＝面（楕円ブロブの重ね）
+      for(var i=0;i<L.blobs.length;i++){
+        var b=L.blobs[i];
+        paintGlow(L.x+b.dx, L.y+b.dy, L.radius*b.r*1.35, c, a*b.w, L.soft, b.rx, b.ry, b.rot);
+      }
+      paintCore(L);
+      break;
+    case 'coastal':                                // 港＝海岸線沿いに扁平
+      paintGlow(L.x, L.y, L.radius, c, a, L.soft, 1.34, 0.70, coastAngleOf(L.p));
+      paintCore(L);
+      break;
+    case 'haze':                                   // 一般市区町村＝コアを持たない微光
+      paintGlow(L.x, L.y, L.radius, c, a, L.soft, 1, 1, 0, true);
+      break;
+    case 'sharp':                                  // 鉱山＝小さく鋭い
+      paintGlow(L.x, L.y, L.radius, c, a, L.soft, 1, 1, 0);
+      paintCore(L);
+      break;
+    default:
+      // 面で描く時代の中小都市は、点として尖らせず平たく置く（都市圏の下地に馴染ませる）
+      paintGlow(L.x, L.y, L.radius*(ERA_FACE[L.era]?1.25:1), c, a, L.soft, 1, 1, 0, ERA_FACE[L.era]);
+      paintCore(L);
+  }
+}
 function drawLights(list){
   cx.save(); cx.globalCompositeOperation='lighter';
-  list.forEach(function(L){
-    var T=TYPE[L.p.k]||TYPE.other, c=T.col;
-    var R=L.r*T.scale*(L.ins?0.72:1);
-    var a=L.br;
-    var g=cx.createRadialGradient(L.x,L.y,0,L.x,L.y,Math.max(3,R));
-    g.addColorStop(0,   'rgba('+c[0]+','+c[1]+','+c[2]+','+(0.85*a).toFixed(3)+')');
-    g.addColorStop(0.18,'rgba('+c[0]+','+c[1]+','+c[2]+','+(0.42*a*T.soft).toFixed(3)+')');
-    g.addColorStop(0.45,'rgba('+c[0]+','+c[1]+','+c[2]+','+(0.13*a*T.soft).toFixed(3)+')');
-    g.addColorStop(1,   'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
-    cx.fillStyle=g; cx.beginPath(); cx.arc(L.x,L.y,Math.max(3,R),0,6.2832); cx.fill();
-    // コア
-    var cr=Math.max(0.7, 1.1+2.0*Math.pow(L.v/100,1.2)*T.core);
-    cx.fillStyle='rgba(255,255,'+(L.p.k==='mine'?200:245)+','+Math.min(1,0.55*a*T.core+0.15).toFixed(3)+')';
-    cx.beginPath(); cx.arc(L.x,L.y,cr,0,6.2832); cx.fill();
-  });
+  // 微光（面の下地）を先に敷き、意味のある点を上に重ねる
+  for(var i=0;i<list.length;i++) if(list[i].footprint==='haze') drawLight(list[i]);
+  for(var j=0;j<list.length;j++) if(list[j].footprint==='blob') drawLight(list[j]);
+  for(var k=0;k<list.length;k++){
+    var f=list[k].footprint;
+    if(f!=='haze'&&f!=='blob') drawLight(list[k]);
+  }
   cx.restore();
 }
 function drawLabels(list){
@@ -539,15 +841,31 @@ function nearestTP(y){
   TPS.forEach(function(t){var d=Math.abs(t.y-y); if(d<bd){bd=d;b=t;}});
   return {tp:b, exact:bd<0.5};
 }
+// §12: 全国画面のHUDは「1600年 / 江戸時代」だけ。技術情報はAboutモーダルへ。
+var ERA_LABEL={ancient:'点で描く時代（古代）',medieval:'点で描く時代（中世）',
+  early_modern:'点＋交通網で描く時代（近世）',modern:'点＋線＋主要都市の面（近代）',
+  contemporary:'面で描く時代（現代）'};
 function updateHUD(){
-  var nt=nearestTP(state.year);
   document.getElementById('hudYear').textContent=fmtYear(state.year);
-  var lit=lightCache.length;
-  var s='光っている地点 '+lit+' / 全'+PLIST.length;
-  document.getElementById('hudSub').innerHTML =
-    (nt.exact? '<span>代表時点 '+nt.tp.t+'（実測）</span>'
-             : '<span class="interp">補間（代表時点 '+nt.tp.t+' に最も近い）</span>')
-    + '　·　' + s;
+  document.getElementById('hudEra').textContent=jpEraOf(Math.round(state.year));
+  updateAboutTech();
+}
+function updateAboutTech(){
+  var el=document.getElementById('mTech');
+  if(!el || !modal || !modal.classList.contains('open')) return;
+  var nt=nearestTP(state.year), era=eraOf(state.year), y=Math.round(state.year);
+  var roles={}; lightCache.forEach(function(L){ roles[L.role]=(roles[L.role]||0)+1; });
+  el.innerHTML =
+    '<b>いま画面に出しているもの（技術情報）</b><br>'+
+    '表示年 '+fmtYear(y)+'（'+jpEraOf(y)+'）／'+
+    (nt.exact? '代表時点 '+nt.tp.t+' の<b>実測</b>'
+             : '代表時点 '+nt.tp.t+' に最も近い年の<b>補間</b>')+'<br>'+
+    '点灯 '+lightCache.length+' 地点 / DB全'+PLIST.length+' 地点（この時点の点灯上限 '+topNFor(nt.tp.y)+'）<br>'+
+    'Renderer: '+ERA_LABEL[era]+'<br>'+
+    '内訳: '+Object.keys(roles).map(function(k){return k+' '+roles[k];}).join(' / ')+'<br>'+
+    '輝度カーブ: <b>'+CURVE_NAME+'</b>（既定 anchor＝100→1.00 / 80→0.45 / 60→0.18 / 40→0.06 / 20→0.015）'+
+    '　露出 E='+exposureAt(state.year).toFixed(2)+'（ソフトニー・年に対して連続）<br>'+
+    '<span style="color:#6f7b90">URLに ?curve=anchor|gamma|power|exp|log|linear|drc|percentile を付けると切替（gamma/powerは &amp;g=、expは &amp;k= で係数指定）。?dur= で再生秒数。</span>';
 }
 
 // ============================================================ タイムライン
@@ -629,29 +947,82 @@ function trackSet(clientX){
   }
   state.year=y; draw();
 }
-tcv.addEventListener('pointerdown',function(e){dragging=true;tcv.setPointerCapture(e.pointerId);trackSet(e.clientX);});
+tcv.addEventListener('pointerdown',function(e){
+  if(state.playing) setPlaying(false);          // つまみを掴んだら再生は止める
+  dragging=true;tcv.setPointerCapture(e.pointerId);trackSet(e.clientX);});
 tcv.addEventListener('pointermove',function(e){ if(dragging) trackSet(e.clientX); });
 tcv.addEventListener('pointerup',function(){dragging=false;});
 tcv.addEventListener('pointercancel',function(){dragging=false;});
 
-// ============================================================ 再生
-var raf=null, last=0;
+// ============================================================ §10 再生＝主要体験
+// 30-60秒で日本史を眺めるモード。時間配分は非線形（古代は速く、近世以降ゆっくり）。
+// スライダー位置（yearToPos）とは別に、再生専用の「時間→年」の割り当てを持つ。
+var PLAY_DUR = Math.max(20, Math.min(120, parseFloat(QS.dur||'44')));
+var PLAY_KNOTS = [                    // [year, 再生時間に占める位置 0-1]
+  [-3000,0.000],[-100,0.070],[700,0.150],[1200,0.245],[1450,0.310],
+  [1600,0.385],[1700,0.455],[1800,0.520],[1868,0.595],
+  [1900,0.660],[1920,0.710],[1945,0.775],[1970,0.855],[2000,0.930],[2026,1.000]
+];
+function playYearAt(u){
+  u=Math.max(0,Math.min(1,u));
+  for(var i=1;i<PLAY_KNOTS.length;i++){
+    if(u<=PLAY_KNOTS[i][1]){
+      var a=PLAY_KNOTS[i-1], b=PLAY_KNOTS[i];
+      var f=(u-a[1])/((b[1]-a[1])||1);
+      return a[0]+f*(b[0]-a[0]);
+    }
+  }
+  return Y1;
+}
+function playUOf(y){
+  for(var i=1;i<PLAY_KNOTS.length;i++){
+    if(y<=PLAY_KNOTS[i][0]){
+      var a=PLAY_KNOTS[i-1], b=PLAY_KNOTS[i];
+      var f=(y-a[0])/((b[0]-a[0])||1);
+      return a[1]+f*(b[1]-a[1]);
+    }
+  }
+  return 1;
+}
+// 時代名の大きめフェード表示
+var fadeEl=document.getElementById('eraFade'), lastEraName=null, fadeTimer=null;
+function showEraFade(name, y){
+  document.getElementById('eraFadeName').textContent=name;
+  document.getElementById('eraFadeYear').textContent=fmtYear(y);
+  fadeEl.classList.add('show');
+  clearTimeout(fadeTimer);
+  fadeTimer=setTimeout(function(){ fadeEl.classList.remove('show'); }, 2100);
+}
+var raf=null, last=0, playU=0;
 function tick(ts){
   if(!state.playing) return;
   if(!last) last=ts;
-  var dt=(ts-last)/1000; last=ts;
-  var p=yearToPos(state.year)+dt/26;   // 全長を約26秒で走破
-  if(p>=1){ p=0; }
-  state.year=posToYear(p);
+  var dt=Math.min(0.15,(ts-last)/1000); last=ts;
+  playU += dt/PLAY_DUR;
+  if(playU>=1){ playU=0; lastEraName=null; }
+  state.year=playYearAt(playU);
+  var nm=jpEraOf(Math.round(state.year));
+  if(nm!==lastEraName){ lastEraName=nm; showEraFade(nm, state.year); }
   draw();
   raf=requestAnimationFrame(tick);
 }
-document.getElementById('btnPlay').addEventListener('click',function(){
-  state.playing=!state.playing; last=0;
-  this.textContent=state.playing?'❚❚ 停止':'▶ 再生';
-  this.classList.toggle('on',state.playing);
-  if(state.playing) raf=requestAnimationFrame(tick); else cancelAnimationFrame(raf);
-});
+function setPlaying(on){
+  state.playing=on; last=0;
+  var b=document.getElementById('btnPlay');
+  b.textContent=on?'❚❚ 停止':'▶ 再生';
+  b.classList.toggle('on',on);
+  document.body.classList.toggle('playing',on);   // §10: 再生中はHUD最小化
+  if(on){
+    playU=playUOf(state.year);
+    if(playU>=0.999) playU=0;
+    lastEraName=null;
+    raf=requestAnimationFrame(tick);
+  }else{
+    cancelAnimationFrame(raf);
+    fadeEl.classList.remove('show');
+  }
+}
+document.getElementById('btnPlay').addEventListener('click',function(){ setPlaying(!state.playing); });
 document.getElementById('btnEdges').addEventListener('click',function(){
   state.edges=!state.edges; this.classList.toggle('on',state.edges); draw();
 });
@@ -659,12 +1030,12 @@ document.getElementById('btnLabel').addEventListener('click',function(){
   state.labels=!state.labels; this.classList.toggle('on',state.labels); draw();
 });
 var modal=document.getElementById('modal');
-document.getElementById('btnInfo').addEventListener('click',function(){modal.classList.add('open');});
+document.getElementById('btnInfo').addEventListener('click',function(){
+  modal.classList.add('open'); updateAboutTech();
+});
 document.getElementById('mClose').addEventListener('click',function(){modal.classList.remove('open');});
 modal.addEventListener('click',function(e){ if(e.target===modal) modal.classList.remove('open'); });
 document.getElementById('mSrc').textContent='データ出典 — '+D.meta.sources;
-document.getElementById('topnNote').textContent='各時代の上位'+TOPN+'地点を表示';
-document.getElementById('topnNoteModal').textContent=TOPN;
 
 // ============================================================ ヒットテスト
 // 点灯中の地点を優先してヒットテストするが、上位TOPN選抜から漏れて消灯している
@@ -809,7 +1180,7 @@ function ensureDetails(cb){
   if(detailsLoading) return;
   detailsLoading=true;
   var s=document.createElement('script');
-  s.src='data/details.js?v=4';
+  s.src='data/details.js?v=5';
   s.onload=function(){ detailsLoaded=true; detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
   s.onerror=function(){ detailsLoading=false; detailsLoaded=true; window.PMAP_DETAILS=window.PMAP_DETAILS||{};
     detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
@@ -909,8 +1280,17 @@ document.addEventListener('keydown',function(e){
   if(e.key==='ArrowLeft'){ state.year=posToYear(yearToPos(state.year)-0.004); draw(); }
   if(e.key==='Escape'){ modal.classList.remove('open'); closePanel(); draw(); }
 });
+// Visual QA / デバッグ用の外部フック（?year=1600 でも指定可）
+window.PL = {
+  setYear:function(y){ if(state.playing) setPlaying(false); state.year=+y; draw(); return fmtYear(state.year); },
+  getYear:function(){ return state.year; },
+  lights:function(){ return lightCache; },
+  curve:CURVE_NAME, curveFn:curveFn, eraOf:eraOf, jpEraOf:jpEraOf,
+  play:function(on){ setPlaying(on!==false); }
+};
 resize();
-state.year=1700; draw();
+state.year = QS.year!==undefined ? (+QS.year||1700) : 1700;
+draw();
 if(!sessionStorage.getItem('pmap_seen')){ modal.classList.add('open'); try{sessionStorage.setItem('pmap_seen','1');}catch(_){} }
 })();
 </script>
