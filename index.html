@@ -199,19 +199,18 @@
 <div id="modal"><div class="box">
   <h3>この光について</h3>
   <p class="warn">この光は実際の夜間照明ではありません。当時の人口・交易・交通・産業・政治的重要性などから推定した「人間活動の明るさ」です。</p>
-  <p>なお、南西諸島は実際の距離より近づけて表示しています（位置データは実座標のまま）。画面幅が十分あるときは南西諸島・小笠原諸島とも枠付きの縮小地図（インセット）で表示し、画面が狭いときは南西諸島を本図内に距離圧縮してそのまま描画します（枠なし）。特に幅の狭い画面では小笠原諸島の表示自体を省略します（この場合、父島・母島は地点クリックでも選択できません）。
-
-各代表時点（BC3000〜2026の32時点）で、地点ごとに相対スコア（0-100）とバンド（S/A/B/C/D）を人手で付与しています。光の明るさ・大きさはそのスコアから機械的に変換したもので、スコアそのものではありません。</p>
-  <p>代表時点と代表時点のあいだの年は<b>線形補間</b>で表示し、その地点に記録のある出来事の年には段差をつけています。スコアの無い地点は光りません。</p>
-  <p>また、実際の人間活動には濃淡の連続的な広がりがある一方、詳しく調査できた地点（Tier1）は各時代とも限られた数しかありません。選抜された地点だけが目立ってしまう偏りを避けるため、<b>各代表時点でスコア上位の地点のみを点灯</b>させています（該当地点数がそれに満たない時代は全地点を点灯）。上位から漏れた地点も、地図上のその位置をクリックすれば詳細パネルは開けます。</p>
-  <p>色は場所の種類（都市・城下町／港／鉱山／宿場・結節点）、明るさはその時代の中での重要度です。明るさはスコアを<b>強く非線形に圧縮</b>して割り当てているため、スコアが半分の地点は「半分の明るさ」ではなくずっと暗く見えます。また時代ごとに描き方を変えており、古代・中世は点、近世は点と交通路、近代以降は主要都市を面（都市圏の広がり）として描きます。</p>
+  <p>色は場所の種類（都市・城下町／港／鉱山／宿場・結節点）、明るさはその時代の中での重要度。各時代の上位の地点だけが光ります。</p>
+  <details style="margin:0 0 12px"><summary style="cursor:pointer;color:#8fa2c0;font-size:12px">仕組みの詳しい説明</summary>
+  <p style="margin-top:10px">各代表時点（BC3000〜2026の32時点）で、地点ごとに相対スコア（0-100）を出典つきの調査にもとづき付与しています。明るさはスコアを強く非線形に圧縮して割り当てているため、スコアが半分でも「半分の明るさ」にはなりません。代表時点のあいだの年は前後から補間し、出来事のある年には段差をつけています。</p>
+  <p>時代ごとに描き方を変えています: 古代・中世は点、近世は点と交通路、近代以降は主要都市を面（都市圏の広がり）として描きます。南西諸島は実際の距離より近づけて表示しています（データは実座標のまま）。狭い画面では小笠原諸島の表示を省略します。</p>
+  </details>
   <div class="tech" id="mTech"></div>
   <p><small id="mSrc"></small></p>
   <p style="text-align:right;margin:0"><button class="btn" id="mClose">閉じる</button></p>
 </div></div>
 
-<script src="coastline.js?v=11"></script>
-<script src="data/bundle.js?v=11"></script>
+<script src="coastline.js?v=12"></script>
+<script src="data/bundle.js?v=12"></script>
 <script>
 (function(){
 "use strict";
@@ -263,7 +262,7 @@ var TYPE = {
 function bandOf(s){ return s>=88?'S': s>=70?'A': s>=50?'B': s>=30?'C':'D'; }
 // T2N（全市区町村機械生成のTier2 National）は研究地点(T1/T2)よりわずかに
 // 控えめに描画する（研究済み地点をわずかに優先＝ユーザー指示）。
-var T2N_BRIGHT_MUL = 0.8, T2N_RADIUS_MUL = 0.85;
+var T2N_BRIGHT_MUL = 0.55, T2N_RADIUS_MUL = 0.78;   // census由来(T2/T2N)共通の減光（2026-09-04ユーザー指示で強化）
 // 各代表時点で光らせる地点数の上限（スコア上位のみ点灯。これに満たない時代は全部点灯）。
 // 選抜バイアス（Tier1調査済みの209地点だけが常に目立つ）を消すための主要機構。
 // 現代は「その他の微光」を面として敷くため上限を広げる（§9）。
@@ -425,6 +424,14 @@ var tpIndex = {}; TY.forEach(function(y,i){ tpIndex[y]=i; });
 // place_id -> tier（T1既定 / T2 / T2N。1地点の行はtierが揃っている前提）
 var PLACE_TIER = {};
 Object.keys(SER).forEach(function(pid){ PLACE_TIER[pid] = SER[pid][0].tier || 'T1'; });
+// その年の直近スコア行のtier（census由来=T2/T2N の年別判定用）
+function tierAt(pid, y){
+  var s=SER[pid]; if(!s||!s.length) return PLACE_TIER[pid]||'T1';
+  var best=s[0], bd=Math.abs(s[0].y-y);
+  for(var i=1;i<s.length;i++){ var d=Math.abs(s[i].y-y); if(d<bd){bd=d;best=s[i];} }
+  return best.tier || 'T1';
+}
+function isCensusOnlyAt(pid, y){ var t=tierAt(pid,y); return t==='T2'||t==='T2N'; }
 
 // ---- 代表時点ごとの「上位TOPN地点」集合（選抜バイアス対策の主機構）
 // 各代表時点で実測行を持つ全地点（T1+T2+T2N）をスコア降順・同点はconfidence
@@ -857,7 +864,7 @@ function computeLights(y){
     var role=roleOf(p, sc.v, tier, era, y);
     var RS=ROLE_STYLE[role], T=TYPE[p.k]||TYPE.other;
     var i0=curveFn(sc.v)*topMul;
-    if(tier==='T2N') i0*=T2N_BRIGHT_MUL;
+    if(tier==='T2N'||tier==='T2'||isCensusOnlyAt(p.id, state.year)) i0*=T2N_BRIGHT_MUL;
     out.push({
       p:p, x:q[0], y:q[1], ins:q[2], sc:sc,
       score:sc.v, v:sc.v, band:bandOf(sc.v), tier:tier,
@@ -1219,7 +1226,7 @@ function hit(mx,my){
   var best=null,bd=1e18;
   for(var i=0;i<lightCache.length;i++){
     var L=lightCache[i];
-    if(PLACE_TIER[L.p.id]==='T2N') continue;   // 機械生成の光は背景扱い＝選択不可（ユーザー指示 2026-09-04）
+    if(isCensusOnlyAt(L.p.id, state.year)) continue; // census由来の年は背景扱い＝選択不可（歴史調査のある年は選択可）
     var d=(L.x-mx)*(L.x-mx)+(L.y-my)*(L.y-my);
     var rad=Math.max(9, L.r*0.42);
     if(d<rad*rad && d<bd){ bd=d; best=L; }
@@ -1227,7 +1234,7 @@ function hit(mx,my){
   if(best) return best;
   var bd2=64, bp=null, bq=null;                 // 消灯地点: 固定8px半径の近傍クリック
   for(var j=0;j<PLIST.length;j++){
-    var p=PLIST[j]; if(PLACE_TIER[p.id]==='T2N') continue;
+    var p=PLIST[j]; if(isCensusOnlyAt(p.id, state.year)) continue;
     // その地点の評価年代の近傍(±200年)でのみ消灯地点を選択可（2000年に古墳群が出る問題の修正）
     var rowsJ=SER[p.id]||[]; var nearEra=false;
     for(var jj=0;jj<rowsJ.length;jj++){ if(Math.abs(rowsJ[jj].y-state.year)<=200){ nearEra=true; break; } }
@@ -1361,7 +1368,7 @@ function ensureDetails(cb){
   if(detailsLoading) return;
   detailsLoading=true;
   var s=document.createElement('script');
-  s.src='data/details.js?v=11';
+  s.src='data/details.js?v=12';
   s.onload=function(){ detailsLoaded=true; detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
   s.onerror=function(){ detailsLoading=false; detailsLoaded=true; window.PMAP_DETAILS=window.PMAP_DETAILS||{};
     detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
@@ -1476,7 +1483,7 @@ if(DEBUG){
 resize();
 state.year = QS.year!==undefined ? (+QS.year||1700) : 1700;
 draw();
-if(!sessionStorage.getItem('pmap_seen')){ modal.classList.add('open'); try{sessionStorage.setItem('pmap_seen','1');}catch(_){} }
+// 初回の自動説明表示は廃止（2026-09-04ユーザー指示）。説明は「この光について」から。
 })();
 </script>
 </body>
