@@ -114,6 +114,35 @@
     vertical-align:middle}
   #hover{position:absolute;z-index:5;pointer-events:none;background:rgba(8,11,18,.92);
     border:1px solid var(--line);border-radius:3px;padding:4px 8px;font-size:11px;display:none}
+
+  /* ---- レスポンシブ（docs/VIZ_POLICY_v1.md 追補2026-09-04）----
+     優先順位: Timeline > Main Japan Map > Controls > Insets。
+     #timebar の高さ・#trackWrap は幅に関わらず不変＝タイムラインを最優先で操作可能に保つ。 */
+  #panel{width:min(370px, 92vw)}
+  #modal .box{max-width:min(600px, 92vw)}
+
+  /* 中幅(600-999px): コントロールをややコンパクトに。小笠原インセットはJS側で非生成 */
+  @media (max-width:999px){
+    #title p{display:none}
+    .btn{padding:5px 9px;font-size:10.5px}
+    #tools{gap:6px}
+  }
+  /* 狭幅(<600px): インセット枠は出さない（南西諸島は本図内に圧縮描画）。
+     免責(#note)はモーダル内の説明のみに委ね、凡例・HUD・タイトルは小さく詰める。 */
+  @media (max-width:599px){
+    #note{display:none}
+    #title{left:12px;top:10px}
+    #title h1{font-size:12px;letter-spacing:.12em}
+    #tools{right:10px;top:10px;gap:5px}
+    .btn{padding:4px 7px;font-size:9.5px}
+    #legend{left:12px;bottom:66px;font-size:9px;line-height:1.55}
+    #hud{left:12px;bottom:14px}
+    #hud .yr{font-size:23px}
+    #hud .era{font-size:10.5px}
+    #modal{padding:14px}
+    #modal .box{padding:16px 15px;font-size:12.5px}
+    #modal h3{font-size:14px}
+  }
 </style>
 </head>
 <body>
@@ -170,7 +199,9 @@
 <div id="modal"><div class="box">
   <h3>この光について</h3>
   <p class="warn">この光は実際の夜間照明ではありません。当時の人口・交易・交通・産業・政治的重要性などから推定した「人間活動の明るさ」です。</p>
-  <p>各代表時点（BC3000〜2026の32時点）で、地点ごとに相対スコア（0-100）とバンド（S/A/B/C/D）を人手で付与しています。光の明るさ・大きさはそのスコアから機械的に変換したもので、スコアそのものではありません。</p>
+  <p>なお、南西諸島は実際の距離より近づけて表示しています（位置データは実座標のまま）。画面幅が十分あるときは南西諸島・小笠原諸島とも枠付きの縮小地図（インセット）で表示し、画面が狭いときは南西諸島を本図内に距離圧縮してそのまま描画します（枠なし）。特に幅の狭い画面では小笠原諸島の表示自体を省略します（この場合、父島・母島は地点クリックでも選択できません）。
+
+各代表時点（BC3000〜2026の32時点）で、地点ごとに相対スコア（0-100）とバンド（S/A/B/C/D）を人手で付与しています。光の明るさ・大きさはそのスコアから機械的に変換したもので、スコアそのものではありません。</p>
   <p>代表時点と代表時点のあいだの年は<b>線形補間</b>で表示し、その地点に記録のある出来事の年には段差をつけています。スコアの無い地点は光りません。</p>
   <p>また、実際の人間活動には濃淡の連続的な広がりがある一方、詳しく調査できた地点（Tier1）は各時代とも限られた数しかありません。選抜された地点だけが目立ってしまう偏りを避けるため、<b>各代表時点でスコア上位の地点のみを点灯</b>させています（該当地点数がそれに満たない時代は全地点を点灯）。上位から漏れた地点も、地図上のその位置をクリックすれば詳細パネルは開けます。</p>
   <p>色は場所の種類（都市・城下町／港／鉱山／宿場・結節点）、明るさはその時代の中での重要度です。明るさはスコアを<b>強く非線形に圧縮</b>して割り当てているため、スコアが半分の地点は「半分の明るさ」ではなくずっと暗く見えます。また時代ごとに描き方を変えており、古代・中世は点、近世は点と交通路、近代以降は主要都市を面（都市圏の広がり）として描きます。</p>
@@ -179,8 +210,8 @@
   <p style="text-align:right;margin:0"><button class="btn" id="mClose">閉じる</button></p>
 </div></div>
 
-<script src="coastline.js?v=5"></script>
-<script src="data/bundle.js?v=5"></script>
+<script src="coastline.js?v=10"></script>
+<script src="data/bundle.js?v=10"></script>
 <script>
 (function(){
 "use strict";
@@ -334,6 +365,15 @@ Object.keys(SER).forEach(function(k){ SER[k].sort(function(a,b){return a.y-b.y;}
 var EVP = {};   // place_id -> events
 D.events.forEach(function(e){ (EVP[e.p]=EVP[e.p]||[]).push(e); });
 
+// 閉山/消滅イベントの初出年（役割の時代妥当性・§VIZ_POLICY追補 2026-09-04(a)）。
+// 「役割が消えたのに役割色で光る」対策: mine役割は閉山以降ここを見て'minor'へ遷移する。
+var STRONG_CLOSE_RE = /close_mine|extinct/;
+var CLOSED_AT = {};   // place_id -> 最も早い閉山/消滅年
+D.events.forEach(function(e){
+  if(!STRONG_CLOSE_RE.test(e.ty)) return;
+  if(CLOSED_AT[e.p]===undefined || e.y<CLOSED_AT[e.p]) CLOSED_AT[e.p]=e.y;
+});
+
 var tpIndex = {}; TY.forEach(function(y,i){ tpIndex[y]=i; });
 
 // place_id -> tier（T1既定 / T2 / T2N。1地点の行はtierが揃っている前提）
@@ -441,7 +481,11 @@ function scoreAt(pid, y){
       var Dv=b.s-a.s, sg=Dv>=0?1:-1, ab=Math.abs(Dv);
       var evs=(EVP[pid]||[]).filter(function(e){
         return e.y>a.y && e.y<=b.y && (e.d===sg) && ab>0; });
-      var lin=ab*(evs.length?0.4:1.0), stepTotal=ab-lin, stepped=null;
+      // close_mine/extinct等の強い下降イベントを含む区間は、段差90%側に倒す
+      // （通常の出来事は60%のまま。§VIZ_POLICY追補(c)＝閉山は「じわじわ」でなく「その時に落ちる」）。
+      var strongEvs=evs.filter(function(e){ return STRONG_CLOSE_RE.test(e.ty); });
+      var linFrac = strongEvs.length ? 0.10 : (evs.length?0.4:1.0);
+      var lin=ab*linFrac, stepTotal=ab-lin, stepped=null;
       var wsum=0; evs.forEach(function(e){ wsum+=e.st; });
       var v=a.s + sg*lin*(y-a.y)/(b.y-a.y);
       evs.forEach(function(e){
@@ -468,6 +512,17 @@ var KC = Math.cos(38*Math.PI/180);
 var view = {ox:0, oy:0, sc:1};      // 本土
 var insets = [];                    // {box:{x,y,w,h}, geo, sc, ox, oy, label}
 
+// ---- レスポンシブ段階（docs/VIZ_POLICY_v1.md 追補2026-09-04）
+//   wide  (>=1000px): 現状維持（南西諸島インセット＋小笠原インセット）
+//   mid   (600-999px): 小笠原インセット非表示・南西諸島は縮小インセット
+//   narrow(<600px)   : インセット枠を常時表示しない。南西諸島は「圧縮projection」で
+//                       九州南西沖に本図内直接描画（枠なし）。小笠原は非描画
+//                       （父島・母島の選択は当面不可＝README「既知の制限」参照）。
+// 優先順位: Timeline > Main Japan Map > Controls > Insets。ブレークポイントは目安。
+var BP = 'wide';
+function bpFor(w){ return w>=1000 ? 'wide' : (w>=600 ? 'mid' : 'narrow'); }
+function inBBox(lon,lat,g){ return lon>=g.lon0&&lon<=g.lon1&&lat>=g.lat0&&lat<=g.lat1; }
+
 function fitMain(w,h){
   var gw=(MAIN.lon1-MAIN.lon0)*KC, gh=(MAIN.lat1-MAIN.lat0);
   var pad=26, avW=w-pad*2, avH=h-pad*2;
@@ -480,6 +535,7 @@ function projMain(lon,lat){ return [lon*KC*view.sc+view.ox, view.oy-lat*view.sc]
 
 function fitInsets(w,h){
   insets=[];
+  if(BP==='narrow') return;           // 枠付きインセットは出さない（南西諸島は本図内に圧縮描画）
   function mk(geo, bx, by, bw, bh){
     var gw=(geo.lon1-geo.lon0)*KC, gh=(geo.lat1-geo.lat0);
     var sc=Math.min((bw-14)/gw,(bh-14)/gh);
@@ -487,15 +543,49 @@ function fitInsets(w,h){
       ox:bx+(bw-gw*sc)/2 - geo.lon0*KC*sc,
       oy:by+(bh-gh*sc)/2 + geo.lat1*sc, label:geo.label});
   }
+  if(BP==='mid'){
+    var Wm=Math.min(168, w*0.24), Hm=Math.min(128, h*0.22);
+    mk(INSET_SW, 14, h-Hm-88, Wm, Hm);   // 縮小インセット。小笠原インセットは作らない
+    return;
+  }
   var W=Math.min(272, w*0.26), H=Math.min(202, h*0.33);
   mk(INSET_SW, 20, h-H-104, W, H);
   mk(INSET_OG, 20+W+12, h-96-78, 96, 78);
 }
+
+// ---- narrow: 南西諸島の「圧縮projection」
+// 元座標(lon,lat)は不変。クラスタ中心からの相対距離を SW_COMPRESS 倍に縮め、
+// 九州南西沖の固定アンカー(SW_ANCHOR_GEO)を中心に、本図と同じ拡大率(view.sc)で
+// 再投影する＝別スケールの縮小地図ではなく「距離を詰めた」配置。
+// hit()・drawEdges()・drawLight() は全てこの projFor 経由で座標を取るため、
+// 描画とクリック判定（hit-test）は自動的に一致する（display transform層の差し替えのみ）。
+var SW_COMPRESS = 0.34;
+// 九州南西沖（甑島の南、屋久島・種子島より南の海域）の仮想アンカー点。
+// 実在の陸地（九州本土・甑島・屋久島・種子島）に重ならない開けた海上を選ぶ。
+var SW_ANCHOR_GEO = {lon:129.6, lat:29.7};
+function projCompressedSW(lon,lat){
+  var cx0=(INSET_SW.lon0+INSET_SW.lon1)/2, cy0=(INSET_SW.lat0+INSET_SW.lat1)/2;
+  var base=projMain(SW_ANCHOR_GEO.lon, SW_ANCHOR_GEO.lat);
+  var spanLonPx=(INSET_SW.lon1-INSET_SW.lon0)*KC*SW_COMPRESS*view.sc;
+  var spanLatPx=(INSET_SW.lat1-INSET_SW.lat0)*SW_COMPRESS*view.sc;
+  // アンカーは九州南西沖の実座標から出すため既定でキャンバス左寄り。
+  // 端末サイズが極端な場合の保険として、キャンバス外へ出ないことだけをクランプする
+  // （左マージンを大きく取ると「九州の南西」の向きが崩れるため最小限に留める）。
+  var acx=Math.max(40+spanLonPx/2, Math.min(W-44-spanLonPx/2, base[0]));
+  var acy=Math.max(54+spanLatPx/2,  Math.min(H-148-spanLatPx/2, base[1]));
+  var fx=(lon-cx0)*KC, fy=(lat-cy0);
+  return [acx+fx*view.sc*SW_COMPRESS, acy-fy*view.sc*SW_COMPRESS];
+}
+
 function projFor(lon,lat){
+  if(BP==='narrow' && inBBox(lon,lat,INSET_SW)){
+    var qc=projCompressedSW(lon,lat);
+    return [qc[0], qc[1], null];        // ins=null → 本図(main)扱いで枠なし描画・通常のhit対象
+  }
+  if(BP!=='wide' && inBBox(lon,lat,INSET_OG)) return [null,null,null];  // 小笠原: mid/narrowは非表示
   for(var i=0;i<insets.length;i++){
     var s=insets[i], g=s.geo;
-    if(lon>=g.lon0&&lon<=g.lon1&&lat>=g.lat0&&lat<=g.lat1)
-      return [lon*KC*s.sc+s.ox, s.oy-lat*s.sc, s];
+    if(inBBox(lon,lat,g)) return [lon*KC*s.sc+s.ox, s.oy-lat*s.sc, s];
   }
   return [lon*KC*view.sc+view.ox, view.oy-lat*view.sc, null];
 }
@@ -514,6 +604,8 @@ function resize(){
   DPR=Math.min(window.devicePixelRatio||1, 2);
   var st=document.getElementById('stage');
   W=st.clientWidth; H=st.clientHeight;
+  BP=bpFor(W);
+  document.body.setAttribute('data-bp', BP);
   cv.width=W*DPR; cv.height=H*DPR;
   cx.setTransform(DPR,0,0,DPR,0,0);
   fitMain(W,H); fitInsets(W,H);
@@ -532,7 +624,13 @@ function polyPath(arr, proj){
 function drawLand(){
   cx.fillStyle='#0b0f17'; cx.strokeStyle='#1b2434'; cx.lineWidth=1;
   Object.keys(COAST).forEach(function(k){
-    if(SW_ISL[k]||OG_ISL[k]) return;
+    if(OG_ISL[k]) return;                    // 小笠原はwideのインセット枠内だけに描く（drawInsets側）
+    if(SW_ISL[k]){
+      if(BP!=='narrow') return;              // wide/mid: インセット枠内で描く（drawInsets側）
+      polyPath(COAST[k], projCompressedSW);  // narrow: 本図内に圧縮座標で直接描画（枠なし）
+      cx.fill(); cx.stroke();
+      return;
+    }
     polyPath(COAST[k], projMain); cx.fill(); cx.stroke();
   });
 }
@@ -552,7 +650,7 @@ function drawInsets(){
     cx.restore();
     cx.strokeStyle='#232e42'; cx.lineWidth=1; cx.strokeRect(b.x+.5,b.y+.5,b.w,b.h);
     cx.fillStyle='#6b7789'; cx.font='10px sans-serif';
-    cx.fillText(s.label+'（距離を詰めて表示）', b.x+6, b.y+13);
+    cx.fillText(s.label, b.x+6, b.y+13);
   });
 }
 
@@ -564,15 +662,21 @@ function drawEdges(y){
   cx.save(); cx.lineCap='round';
   D.edges.forEach(function(e){
     if(y<e.s-40 || y>e.e+40) return;
+    var pts=[], hidden=false;
+    for(var i=0;i<e.p.length;i++){
+      var q=projFor(e.p[i][0], e.p[i][1]);
+      if(q[0]===null){ hidden=true; break; }   // 非表示インセット（小笠原）に触れる線は描かない
+      pts.push(q);
+    }
+    if(hidden) return;
     var doc = e.ev==='documented';
     cx.strokeStyle = doc? 'rgba(120,165,215,'+(0.20*gain).toFixed(3)+')'
                         : 'rgba(120,150,190,'+(0.11*gain).toFixed(3)+')';
     cx.lineWidth = doc? 1.1 : 0.9;
     cx.setLineDash(doc? [] : [2,4]);
     cx.beginPath();
-    for(var i=0;i<e.p.length;i++){
-      var q=projFor(e.p[i][0], e.p[i][1]);
-      if(i===0) cx.moveTo(q[0],q[1]); else cx.lineTo(q[0],q[1]);
+    for(var j=0;j<pts.length;j++){
+      if(j===0) cx.moveTo(pts[j][0],pts[j][1]); else cx.lineTo(pts[j][0],pts[j][1]);
     }
     cx.stroke();
   });
@@ -599,11 +703,22 @@ function baseRadius(s){
   var n=Math.max(0,Math.min(1,s/100));
   return 6+30*Math.pow(n,0.85);              // 旧 lightGeom と同じ（1600年の幾何を保つ）
 }
+// C帯下限（バンドしきい値と同じ30）。現代の点灯下限判定に使う（§VIZ_POLICY追補(b)）。
+var C_BAND_FLOOR = 30;
 // 役割の判定。色（＝場所の種類 k）とは独立に、描き方だけを決める。
-function roleOf(p, s, tier, era){
+function roleOf(p, s, tier, era, y){
   var kt=p.kt||'';
-  if(p.k==='mine') return 'mine';
+  if(p.k==='mine'){
+    // 閉山イベント以降は「鉱山の鋭い光」をやめ、小さな街の光(haze)へ遷移する
+    // （役割は時代とともに変わる＝§VIZ_POLICY追補(a)。色=種類は維持するので橙のまま）。
+    var closedY=CLOSED_AT[p.id];
+    if(closedY!==undefined && y>=closedY) return 'minor';
+    return 'mine';
+  }
   if(tier==='T2N' && s<58) return 'minor';                 // §6: score38級を独立した丸にしない
+  // 現代（1980以降）で補間値がC帯下限未満の研究地点(T1/T2)は微光化する
+  // （T2Nの58は既存の下限のまま。ここはT1/T2向けの下限＝§VIZ_POLICY追補(b)）。
+  if(y>=1980 && tier!=='T2N' && s<C_BAND_FLOOR) return 'minor';
   var urbanish=/capital|urban|castle_town|district|municipality/.test(kt);
   if(ERA_FACE[era] && urbanish && s>=68) return 'metro';   // §5: 面化は近代以降だけ
   if(p.k==='port' && !/capital|castle_town/.test(kt)) return 'port';
@@ -680,7 +795,8 @@ function computeLights(y){
     if(!inTopN(p.id,y)) continue;               // 選抜: 各時点の上位のみ点灯
     var tier=PLACE_TIER[p.id];
     var q=projFor(p.lon,p.lat);
-    var role=roleOf(p, sc.v, tier, era);
+    if(q[0]===null) continue;            // 現在の画面幅で非表示のインセット（例: mid/narrowの小笠原）
+    var role=roleOf(p, sc.v, tier, era, y);
     var RS=ROLE_STYLE[role], T=TYPE[p.k]||TYPE.other;
     var i0=curveFn(sc.v);
     if(tier==='T2N') i0*=T2N_BRIGHT_MUL;
@@ -1045,6 +1161,7 @@ function hit(mx,my){
   var best=null,bd=1e18;
   for(var i=0;i<lightCache.length;i++){
     var L=lightCache[i];
+    if(PLACE_TIER[L.p.id]==='T2N') continue;   // 機械生成の光は背景扱い＝選択不可（ユーザー指示 2026-09-04）
     var d=(L.x-mx)*(L.x-mx)+(L.y-my)*(L.y-my);
     var rad=Math.max(9, L.r*0.42);
     if(d<rad*rad && d<bd){ bd=d; best=L; }
@@ -1052,7 +1169,13 @@ function hit(mx,my){
   if(best) return best;
   var bd2=64, bp=null, bq=null;                 // 消灯地点: 固定8px半径の近傍クリック
   for(var j=0;j<PLIST.length;j++){
-    var p=PLIST[j], q=projFor(p.lon,p.lat);
+    var p=PLIST[j]; if(PLACE_TIER[p.id]==='T2N') continue;
+    // その地点の評価年代の近傍(±200年)でのみ消灯地点を選択可（2000年に古墳群が出る問題の修正）
+    var rowsJ=SER[p.id]||[]; var nearEra=false;
+    for(var jj=0;jj<rowsJ.length;jj++){ if(Math.abs(rowsJ[jj].y-state.year)<=200){ nearEra=true; break; } }
+    if(!nearEra) continue;
+    var q=projFor(p.lon,p.lat);
+    if(q[0]===null) continue;             // 現在の画面幅で非表示のインセット
     var d2=(q[0]-mx)*(q[0]-mx)+(q[1]-my)*(q[1]-my);
     if(d2<bd2){ bd2=d2; bp=p; bq=q; }
   }
@@ -1067,8 +1190,8 @@ cv.addEventListener('mousemove',function(e){
   var r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
   var L=hit(mx,my);
   if(L){ hv.style.display='block'; hv.style.left=(mx+12)+'px'; hv.style.top=(my-6)+'px';
-    hv.textContent = L.sc? (L.p.n+'　'+L.v.toFixed(0)+'（'+bandOf(L.v)+'）'+(L.dark?'・消灯中':''))
-                          : (L.p.n+'（この時点はスコア無し）');
+    hv.textContent = L.sc? (L.p.n+'　'+L.v.toFixed(0)+'（'+bandOf(L.v)+'）'+(L.dark?'・この年は上位圏外':''))
+                          : (L.p.n+'（この年代の評価はありません）');
     cv.style.cursor='pointer'; }
   else { hv.style.display='none'; cv.style.cursor='crosshair'; }
 });
@@ -1097,13 +1220,13 @@ function renderPanel(){
   var now='';
   if(sc){
     now = fmtYear(state.year)+' — スコア <b>'+sc.v.toFixed(1)+'</b>（'+bandOf(sc.v)+'帯）'+
-      (sc.interp? ' <span style="color:#f0b96b">補間値（＝前後の時点から推定した表示）</span>'
-                 : ' <span style="color:#9fd8a8">実測値（＝調査で確認できた値）</span>');
+      (sc.interp? ' <span style="color:#f0b96b">前後の年代からの推定表示</span>'
+                 : ' <span style="color:#9fd8a8">調査にもとづく値</span>');
     if(sc.stepped) now+='<br><span style="font-size:11px;color:#e0b98a">直近の段差: '+
       fmtYear(sc.stepped.y)+' '+sc.stepped.x+'</span>';
-    if(sc.fade) now+='<br><span style="font-size:11px;color:#8792a6">前後の代表時点に行が無いため消灯へ遷移中（表示上の処理）</span>';
+    if(sc.fade) now+='<br><span style="font-size:11px;color:#8792a6">この年代の前後に評価がないため、光が弱まっています</span>';
   } else {
-    now='<span style="color:#8792a6">この年にはスコア行がありません（＝光らせない）</span>';
+    now='<span style="color:#8792a6">この年代の記録・評価はありません</span>';
   }
   document.getElementById('pNow').innerHTML=now;
 
@@ -1180,7 +1303,7 @@ function ensureDetails(cb){
   if(detailsLoading) return;
   detailsLoading=true;
   var s=document.createElement('script');
-  s.src='data/details.js?v=5';
+  s.src='data/details.js?v=10';
   s.onload=function(){ detailsLoaded=true; detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
   s.onerror=function(){ detailsLoading=false; detailsLoaded=true; window.PMAP_DETAILS=window.PMAP_DETAILS||{};
     detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
@@ -1286,7 +1409,8 @@ window.PL = {
   getYear:function(){ return state.year; },
   lights:function(){ return lightCache; },
   curve:CURVE_NAME, curveFn:curveFn, eraOf:eraOf, jpEraOf:jpEraOf,
-  play:function(on){ setPlaying(on!==false); }
+  play:function(on){ setPlaying(on!==false); },
+  closedAt:CLOSED_AT, roleOf:roleOf
 };
 resize();
 state.year = QS.year!==undefined ? (+QS.year||1700) : 1700;
