@@ -209,8 +209,8 @@
   <p style="text-align:right;margin:0"><button class="btn" id="mClose">閉じる</button></p>
 </div></div>
 
-<script src="coastline.js?v=12"></script>
-<script src="data/bundle.js?v=12"></script>
+<script src="coastline.js?v=13"></script>
+<script src="data/bundle.js?v=13"></script>
 <script>
 (function(){
 "use strict";
@@ -597,24 +597,83 @@ function fitMain(w,h){
 }
 function projMain(lon,lat){ return [lon*KC*view.sc+view.ox, view.oy-lat*view.sc]; }
 
+// ---- インセット自動配置（docs/VIZ_POLICY_v1.md 追補2026-09-05）
+// 日本列島は南西(九州)→北東(北海道)の対角に伸びるため、インセット枠を対角の
+// 「空いている」角（左上＝タイトル下の海域／右下＝免責の上）へ置く。固定座標だと
+// アスペクト比によって本図の陸地（特に九州）に重なる不具合があったため、
+// 主要4島の外接矩形＋主要UI矩形と交差しない候補を順に試す方式に変更。
+var MAIN_ISLANDS=['honshu','hokkaido','kyushu','shikoku'];
+function rectsIntersect(a,b){
+  return !(a.x+a.w<=b.x || b.x+b.w<=a.x || a.y+a.h<=b.y || b.y+b.h<=a.y);
+}
+function landAvoidRects(pad){
+  var out=[];
+  MAIN_ISLANDS.forEach(function(k){
+    var arr=COAST[k]; if(!arr || !arr.length) return;
+    var lo0=1e9,lo1=-1e9,la0=1e9,la1=-1e9;
+    for(var i=0;i<arr.length;i+=2){
+      var lo=arr[i], la=arr[i+1];
+      if(lo<lo0)lo0=lo; if(lo>lo1)lo1=lo;
+      if(la<la0)la0=la; if(la>la1)la1=la;
+    }
+    var p1=projMain(lo0,la1), p2=projMain(lo1,la0);   // (西,北)・(東,南) → px矩形
+    out.push({x:Math.min(p1[0],p2[0])-pad, y:Math.min(p1[1],p2[1])-pad,
+      w:Math.abs(p2[0]-p1[0])+pad*2, h:Math.abs(p2[1]-p1[1])+pad*2});
+  });
+  return out;
+}
+function uiAvoidRects(w,h){
+  return [
+    {x:16, y:12, w:300, h:60},          // タイトル
+    {x:w-16-340, y:10, w:340, h:40},    // 右上ツールバー
+    {x:16, y:h-172, w:150, h:96},       // 凡例
+    {x:16, y:h-90,  w:200, h:76},       // 年表示(HUD)
+    {x:w-320, y:h-108, w:308, h:96}     // 免責
+  ];
+}
+
 function fitInsets(w,h){
   insets=[];
   if(BP==='narrow') return;           // 枠付きインセットは出さない（南西諸島は本図内に圧縮描画）
   function mk(geo, bx, by, bw, bh){
     var gw=(geo.lon1-geo.lon0)*KC, gh=(geo.lat1-geo.lat0);
     var sc=Math.min((bw-14)/gw,(bh-14)/gh);
-    insets.push({geo:geo, sc:sc, box:{x:bx,y:by,w:bw,h:bh},
+    var box={x:bx,y:by,w:bw,h:bh};
+    insets.push({geo:geo, sc:sc, box:box,
       ox:bx+(bw-gw*sc)/2 - geo.lon0*KC*sc,
       oy:by+(bh-gh*sc)/2 + geo.lat1*sc, label:geo.label});
+    return box;
+  }
+  var avoidBase = landAvoidRects(8).concat(uiAvoidRects(w,h));
+  // 候補アンカー（左上座標を返す）。w,hはfitInsets引数をクロージャで参照。
+  var TL = function(bw,bh){ return {x:20, y:80}; };                 // 左上＝タイトル下の海域
+  var BR = function(bw,bh){ return {x:w-20-bw, y:h-116-bh}; };      // 右下＝免責の上
+  function place(geo, sizes, candidates, occupied){
+    for(var s=0;s<sizes.length;s++){
+      var bw=sizes[s][0], bh=sizes[s][1];
+      for(var c=0;c<candidates.length;c++){
+        var a=candidates[c](bw,bh);
+        var rect={x:a.x,y:a.y,w:bw,h:bh};
+        if(rect.x<4||rect.y<4||rect.x+rect.w>w-4||rect.y+rect.h>h-4) continue;  // 画面外
+        var avoid=avoidBase.concat(occupied), hit=false;
+        for(var k=0;k<avoid.length;k++){ if(rectsIntersect(rect,avoid[k])){hit=true;break;} }
+        if(!hit) return mk(geo, rect.x, rect.y, bw, bh);
+      }
+    }
+    return null;   // 全候補が陸地/UIと交差 → このインセットは非表示
   }
   if(BP==='mid'){
     var Wm=Math.min(168, w*0.24), Hm=Math.min(128, h*0.22);
-    mk(INSET_SW, 14, h-Hm-88, Wm, Hm);   // 縮小インセット。小笠原インセットは作らない
+    place(INSET_SW, [[Wm,Hm],[Wm*0.7,Hm*0.7]], [TL,BR], []);   // 小笠原インセットは作らない
     return;
   }
   var W=Math.min(272, w*0.26), H=Math.min(202, h*0.33);
-  mk(INSET_SW, 20, h-H-104, W, H);
-  mk(INSET_OG, 20+W+12, h-96-78, 96, 78);
+  var swBox = place(INSET_SW, [[W,H],[W*0.7,H*0.7]], [TL,BR], []);
+  var belowSW = function(bw,bh){
+    if(!swBox) return {x:-9999,y:-9999};
+    return {x:swBox.x, y:swBox.y+swBox.h+10};
+  };
+  place(INSET_OG, [[96,78],[70,58]], [BR,belowSW], swBox?[swBox]:[]);
 }
 
 // ---- narrow: 南西諸島の「圧縮projection」
@@ -1368,7 +1427,7 @@ function ensureDetails(cb){
   if(detailsLoading) return;
   detailsLoading=true;
   var s=document.createElement('script');
-  s.src='data/details.js?v=12';
+  s.src='data/details.js?v=13';
   s.onload=function(){ detailsLoaded=true; detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
   s.onerror=function(){ detailsLoading=false; detailsLoaded=true; window.PMAP_DETAILS=window.PMAP_DETAILS||{};
     detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
