@@ -143,6 +143,14 @@
     #modal .box{padding:16px 15px;font-size:12.5px}
     #modal h3{font-size:14px}
   }
+
+  /* ---- Visual QAモード（?qa=1）----
+     tools/viz_qa.py が headless Chrome で静的レンダリングして画素検査するための表示。
+     光と海岸線だけを残し、HUD・凡例・免責・タイトル・ボタン・タイムライン（スライダー）・
+     インセット枠線を消す。枠線の非表示はJS側（QA変数）でも行う。 */
+  body.qa #title, body.qa #tools, body.qa #legend, body.qa #hud, body.qa #note,
+  body.qa #timebar, body.qa #panel, body.qa #modal, body.qa #hover,
+  body.qa #eraFade, body.qa #qaDump{display:none!important}
 </style>
 </head>
 <body>
@@ -202,6 +210,7 @@
   <p>色は場所の種類（都市・城下町／港／鉱山／宿場・結節点）、明るさはその時代の中での重要度。各時代の上位の地点だけが光ります。</p>
   <details style="margin:0 0 12px"><summary style="cursor:pointer;color:#8fa2c0;font-size:12px">仕組みの詳しい説明</summary>
   <p style="margin-top:10px">各代表時点（BC3000〜2026の32時点）で、地点ごとに相対スコア（0-100）を出典つきの調査にもとづき付与しています。明るさはスコアを強く非線形に圧縮して割り当てているため、スコアが半分でも「半分の明るさ」にはなりません。代表時点のあいだの年は前後から補間し、出来事のある年には段差をつけています。</p>
+  <p>光は「中心（核）」と「広がり」の二層に分けて描いています。核の明るさはその地点自身のスコアだけで決まり、近くに別の地点があっても足し合わさりません。周辺に都市が集まっていることは、明るさではなく光の<b>広さ</b>として表れます。たとえば1700年は、最も強い核は江戸、最も広い集積は上方（京都・大坂・堺・大津）になります。</p>
   <p>時代ごとに描き方を変えています: 古代・中世は点、近世は点と交通路、近代以降は主要都市を面（都市圏の広がり）として描きます。南西諸島は実際の距離より近づけて表示しています（データは実座標のまま）。狭い画面では小笠原諸島の表示を省略します。</p>
   </details>
   <div class="tech" id="mTech"></div>
@@ -209,8 +218,10 @@
   <p style="text-align:right;margin:0"><button class="btn" id="mClose">閉じる</button></p>
 </div></div>
 
-<script src="coastline.js?v=13"></script>
-<script src="data/bundle.js?v=13"></script>
+<pre id="qaDump" style="display:none"></pre>
+
+<script src="coastline.js?v=14"></script>
+<script src="data/bundle.js?v=14"></script>
 <script>
 (function(){
 "use strict";
@@ -250,6 +261,23 @@ function safeFloat(raw, def, lo, hi){
 // デバッグ用グローバル（window.PL）とカーブ切替（?curve=）は既定では無効化し、
 // ?debug=1 のときだけ有効にする（レビュー指摘: window への公開を最小化）。
 var DEBUG = QS.debug==='1';
+// Visual QAモード（?year=YYYY&qa=1）: 指定年で静的描画し、HUD/凡例/免責/スライダー/
+// インセット枠線を消して「光と海岸線」だけにする。?qa=1&dump=1 を足すと、
+// ページ側が投影済み座標と各地点の核輝度を #qaDump にJSONで出力する
+// （tools/viz_qa.py が --dump-dom で回収し、画像の期待値に使う）。
+var QA = QS.qa==='1';
+var QA_DUMP = QA && QS.dump==='1';
+if(QA){
+  document.body.classList.add('qa');
+  // QAでは描画サイズをURL(?w=&h=、既定1280x800)に固定する。headless Chrome は
+  // 起動直後のビューポート高（ウィンドウchrome分だけ低い）とスクリーンショット時の
+  // 高さが食い違うため、ビューポートに追随させるとDOMダンプの座標と画像がずれる。
+  var QW=safeFloat(QS.w, 1280, 200, 8000), QH=safeFloat(QS.h, 800, 200, 8000);
+  var qst=document.createElement('style');
+  qst.textContent='#app{position:absolute!important;inset:auto!important;left:0;top:0;'+
+    'width:'+QW+'px;height:'+QH+'px}';
+  document.head.appendChild(qst);
+}
 
 // 色＝場所の種類（§13: 彩度はこれ以上上げない）。scale/core/softは形の性格。
 var TYPE = {
@@ -762,7 +790,7 @@ function drawInsets(){
     var b=s.box;
     cx.save();
     cx.beginPath(); cx.rect(b.x,b.y,b.w,b.h); cx.clip();
-    cx.fillStyle='#05070e'; cx.fillRect(b.x,b.y,b.w,b.h);
+    if(!QA){ cx.fillStyle='#05070e'; cx.fillRect(b.x,b.y,b.w,b.h); }
     cx.fillStyle='#131926'; cx.strokeStyle='#2b3648'; cx.lineWidth=1;
     var set = (s.geo===INSET_SW)?SW_ISL:OG_ISL;
     Object.keys(COAST).forEach(function(k){
@@ -771,6 +799,7 @@ function drawInsets(){
       cx.fill(); cx.stroke();
     });
     cx.restore();
+    if(QA) return;                    // QAモードは枠線・ラベルを出さない（光と海岸線のみ）
     cx.strokeStyle='#232e42'; cx.lineWidth=1; cx.strokeRect(b.x+.5,b.y+.5,b.w,b.h);
     cx.fillStyle='#6b7789'; cx.font='10px sans-serif';
     cx.fillText(s.label, b.x+6, b.y+13);
@@ -821,6 +850,42 @@ var ROLE_STYLE = {
 };
 var BLOB_SPREAD_MAX = 1.65;      // 都市圏の広がりの上限（面が日本列島を覆わないための箍）
 var AGG_SIGMA_KM    = 32;        // 都市圏として束ねる近傍の半径
+
+// ============================================================ 二層光モデル
+// （docs/VIZ_POLICY_v1.md 追補2（2026-09-12）「二層分離」）
+//
+//   核(core)層   … その地点のスコアだけで決まる中心輝度。**非加算**（max合成）で
+//                   描くので、近くに何地点あっても中心のピークは自地点の値を超えない。
+//                   → 1700年の「最も強い核＝江戸」が数値どおり画面に出る。
+//   広がり(spread)層 … 周辺集積を反映する広く低い輝度のハロー。加算(lighter)で
+//                   溜めてよいが、溜めた値はトーンマップで SPREAD_CAP 以下に圧縮する。
+//                   近傍32kmのガウス凝集度(agg)はこの層の**半径＝面積**だけに効かせ、
+//                   核輝度には一切触れない。→「広い集積＝上方」が面として出る。
+//
+// 最終合成は  画面 = max(核, 加算+トーンマップした広がり)  なので、
+// 白飽和（輝度>0.95）は最上位地点の核の中心数px以外には原理的に生じない。
+var SPREAD_PRE   = 0.22;   // 加算バッファへ入れるときのゲイン（8bitバッファの飽和余裕を作る）
+var SPREAD_CAP   = 0.46;   // 広がり層の最大チャンネル値（トーンマップの漸近上限）
+var CORE_GAMMA   = 0.55;   // 核輝度の最終圧縮（単調）。上位の核を必ず SPREAD_CAP より上に置く
+var CORE_EXPO_FRAC = 0.36; // 露出(E)を核に効かせる割合。1.0だと上位同士が潰れて順位が読めない
+var CORE_R_MIN   = 1.5;    // 核の最小半径(px)。1px未満だとアンチエイリアスでピークが出ない
+var CORE_R_K     = 5.2;    // 核半径のスコア係数（上位の核を「点」でなく「核」として読ませる）
+var CORE_HALO    = 2.0;    // 核グラデーションの外周 / 核半径（広げすぎると隣の核を呑む）
+// 核の中心に置く「平らな頂上」の半径(px)。中心が尖ったグラデーションだと、
+// 地点のサブピクセル位置によって中心画素が拾う値が最大5%ぶれ、スコア差2点ぶんの
+// 輝度差より大きくなって順位が読めなくなる（Visual QA (b) がこれで落ちていた）。
+// 中心を含む1画素が必ず頂上の内側に入る大きさ（>= √2/2 + 0.5）にする。
+var CORE_PLATEAU = 1.4;
+var CORE_COL_LUMA = 0.9868;         // CORE_COL の Rec.709 輝度（QAの期待値計算用）
+var CORE_COL     = [255,252,238];   // 核の色は種類によらず一定（色＝種類は広がり層が担う）
+var AGG_R_GAIN   = 0.60;   // 凝集度→広がり半径の係数
+var AGG_R_MAX    = 1.40;   // 同 上限（列島を覆わないための箍）
+// 面で描く時代（近代以降）で、中位以下の地点の核を消していく帯。
+// §6「score38級を独立した明るい丸にしない」。ここを残すと、市区町村の数だけ
+// 白い粒が等間隔に並んでハーフトーン（網点）模様になり「面」が壊れる。
+// スコアの単調増加関数を掛けるだけなので、上位の核輝度の順位は変わらない。
+var CORE_FACE_LO = 62, CORE_FACE_HI = 78;
+function smoothstep(a,b,x){ x=(x-a)/((b-a)||1); x=Math.max(0,Math.min(1,x)); return x*x*(3-2*x); }
 
 function baseRadius(s){
   var n=Math.max(0,Math.min(1,s/100));
@@ -910,6 +975,23 @@ function makeBlobs(L){
   return out;
 }
 
+// 核の中心輝度。**自地点のスコアだけ**の関数（単調増加）。
+// 露出は広がり層ほど強くかけない（E をそのまま使うと 96/93/92 が 0.99/0.97/0.96 に
+// 潰れて「どれが一番明るい核か」が画面から読めなくなるため）。
+// 最後に CORE_GAMMA で圧縮して、上位の核が必ず SPREAD_CAP より上に来るようにする。
+function coreBrightness(s, y){
+  var E  = exposureAt(y);
+  var Ec = 1 + (E-1)*CORE_EXPO_FRAC;
+  var b  = expose(Math.max(0,Math.min(1,curveFn(s))), Ec);
+  return Math.pow(Math.max(0,Math.min(1,b)), CORE_GAMMA);
+}
+
+// 核の半径(px)。輝度ではなく大きさで「核らしさ」を出す係数（種類・役割はここに効く）。
+function coreRadius(L){
+  var cr=CORE_R_MIN + CORE_R_K*Math.pow(Math.max(0,Math.min(100,L.score))/100, 1.35)*L.core;
+  return L.ins ? cr*0.8 : cr;
+}
+
 function computeLights(y){
   var era=eraOf(y), expo=exposureAt(y), out=[], i;
   for(i=0;i<PLIST.length;i++){
@@ -926,35 +1008,51 @@ function computeLights(y){
     if(tier==='T2N'||tier==='T2'||isCensusOnlyAt(p.id, state.year)) i0*=T2N_BRIGHT_MUL;
     out.push({
       p:p, x:q[0], y:q[1], ins:q[2], sc:sc,
-      score:sc.v, v:sc.v, band:bandOf(sc.v), tier:tier,
+      score:sc.v, v:sc.v, band:bandOf(sc.v), tier:tier, topMul:topMul,
       era:era, role:role, footprint:RS.fp,
-      intensity0:i0, intensity:i0, agg:0, spread:1,
+      intensity0:i0, intensity:i0, agg:0, spread:1, aggR:1, coreV:0,
       color:T.col, soft:T.soft*RS.softMul, core:T.core*RS.coreMul,
       radius:baseRadius(sc.v)*T.scale*RS.rmul*(tier==='T2N'?T2N_RADIUS_MUL:1)*(q[2]?0.72:1),
       blobs:null
     });
   }
   applyFrameCurve(out);                          // drc / percentile はここで確定
-  if(ERA_FACE[era]) computeAgglomeration(out);
+  // 凝集度は全時代で計算する（＝広がり層の半径にだけ使う。核輝度には触れない）。
+  computeAgglomeration(out);
   for(i=0;i<out.length;i++){
     var L=out[i];
     if(CURVE_NAME!=='drc' && CURVE_NAME!=='percentile') L.intensity=L.intensity0;
     L.intensity=Math.min(1, Math.max(MIN_INTENSITY, expose(L.intensity, expo)));
+    // --- 核: 自地点スコアのみ。role='minor'（一般市区町村・閉山後の鉱山など）は核を持たない
+    L.coreV = (L.role==='minor' || L.core<=0) ? 0
+            : Math.min(1, coreBrightness(L.score, y)) * Math.max(0, Math.min(1, L.topMul));
+    if(ERA_FACE[era]) L.coreV *= smoothstep(CORE_FACE_LO, CORE_FACE_HI, L.score);
+    // census由来(T2/T2N)の減光（b2e6e3d）は核にも掛ける。自地点の属性による係数なので
+    // 「核輝度は近傍に影響されない」は保たれる（レビュー指摘 2026-09-13）。
+    if(L.tier==='T2N'||L.tier==='T2'||isCensusOnlyAt(L.p.id, y)) L.coreV *= T2N_BRIGHT_MUL;
+    L.coreR = coreRadius(L);
+    // --- 広がり: 近傍集積(agg)は半径＝面積にだけ効かせる
+    L.aggR = 1 + AGG_R_GAIN*Math.min(AGG_R_MAX, Math.sqrt(Math.max(0, L.agg-L.intensity0)));
     if(L.role==='metro'){
       L.spread=1+0.62*Math.min(BLOB_SPREAD_MAX, Math.sqrt(Math.max(0,L.agg-L.intensity0)));
       L.blobs=makeBlobs(L);
     }else if(L.role==='minor'){
       L.intensity*=0.72;                         // 微光として地方の下地に溶かす
     }
+    L.spreadR = L.radius*(L.role==='metro' ? 1 : L.aggR);   // metroはblob側でspreadを使う
     L.br=L.intensity; L.r=L.radius;               // 既存コード（ラベル/ヒットテスト）との互換
   }
   return out;
 }
 
 // ---- 描画プリミティブ
+// GX は「いま広がり層を描いている対象コンテキスト」。既定は本体キャンバスだが、
+// renderSpread() の間だけオフスクリーンの加算バッファに差し替わる。
+var GX = null;
 function rgba(c,a){ return 'rgba('+c[0]+','+c[1]+','+c[2]+','+Math.max(0,a).toFixed(3)+')'; }
 function paintGlow(x,y,R,c,a,soft,rx,ry,rot,flat){
   R=Math.max(3,R);
+  var cx=GX;
   cx.save();
   cx.translate(x,y);
   if(rot) cx.rotate(rot);
@@ -977,54 +1075,168 @@ function paintGlow(x,y,R,c,a,soft,rx,ry,rot,flat){
   cx.fillStyle=g; cx.beginPath(); cx.arc(0,0,R,0,6.2832); cx.fill();
   cx.restore();
 }
-function paintCore(L){
-  if(L.core<=0) return;
-  // コアの下限アルファ。点で描く時代は「弱い光も1点として読める」ことが大事なので
-  // 0.15 を敷く（従来どおり）。面で描く時代に同じ床を敷くと、市区町村の数だけ
-  // 白い粒が並んで格子模様になり「面」が壊れるので、ほぼ0にする。
-  var floor = ERA_FACE[L.era] ? 0.03 : 0.15;
-  var cr=Math.max(0.7, 1.1+2.0*Math.pow(L.score/100,1.2)*L.core);
-  cx.fillStyle='rgba(255,255,'+(L.p.k==='mine'?200:245)+','+
-    Math.min(1,0.55*L.intensity*L.core+floor).toFixed(3)+')';
-  cx.beginPath(); cx.arc(L.x,L.y,cr,0,6.2832); cx.fill();
-}
-// §4/§5 時代別Renderer: footprint ごとに描き分ける
-function drawLight(L){
-  var c=L.color, a=L.intensity;
+// §4/§5 時代別Renderer: footprint ごとに「広がり層」を描き分ける（核はここでは描かない）
+function drawSpreadOf(L){
+  var c=L.color, a=L.intensity*SPREAD_PRE, R=L.spreadR;
   switch(L.footprint){
     case 'blob':                                   // 大都市＝面（楕円ブロブの重ね）
       for(var i=0;i<L.blobs.length;i++){
         var b=L.blobs[i];
         paintGlow(L.x+b.dx, L.y+b.dy, L.radius*b.r*1.35, c, a*b.w, L.soft, b.rx, b.ry, b.rot);
       }
-      paintCore(L);
       break;
     case 'coastal':                                // 港＝海岸線沿いに扁平
-      paintGlow(L.x, L.y, L.radius, c, a, L.soft, 1.34, 0.70, coastAngleOf(L.p));
-      paintCore(L);
+      paintGlow(L.x, L.y, R, c, a, L.soft, 1.34, 0.70, coastAngleOf(L.p));
       break;
     case 'haze':                                   // 一般市区町村＝コアを持たない微光
-      paintGlow(L.x, L.y, L.radius, c, a, L.soft, 1, 1, 0, true);
+      paintGlow(L.x, L.y, R, c, a, L.soft, 1, 1, 0, true);
       break;
     case 'sharp':                                  // 鉱山＝小さく鋭い
-      paintGlow(L.x, L.y, L.radius, c, a, L.soft, 1, 1, 0);
-      paintCore(L);
+      paintGlow(L.x, L.y, R, c, a, L.soft, 1, 1, 0);
       break;
     default:
       // 面で描く時代の中小都市は、点として尖らせず平たく置く（都市圏の下地に馴染ませる）
-      paintGlow(L.x, L.y, L.radius*(ERA_FACE[L.era]?1.25:1), c, a, L.soft, 1, 1, 0, ERA_FACE[L.era]);
-      paintCore(L);
+      paintGlow(L.x, L.y, R*(ERA_FACE[L.era]?1.25:1), c, a, L.soft, 1, 1, 0, ERA_FACE[L.era]);
   }
 }
-function drawLights(list){
-  cx.save(); cx.globalCompositeOperation='lighter';
-  // 微光（面の下地）を先に敷き、意味のある点を上に重ねる
-  for(var i=0;i<list.length;i++) if(list[i].footprint==='haze') drawLight(list[i]);
-  for(var j=0;j<list.length;j++) if(list[j].footprint==='blob') drawLight(list[j]);
-  for(var k=0;k<list.length;k++){
-    var f=list[k].footprint;
-    if(f!=='haze'&&f!=='blob') drawLight(list[k]);
+// ---- 広がり層: オフスクリーンに加算で溜めてからトーンマップして返す
+// 低周波（ぼけた光）なので本体より低い解像度で十分＝getImageDataの走査量を抑える。
+var spreadCv=null, spreadCx=null, SPS=1, SPW=0, SPH=0, spreadKeyLast='';
+var TONE_LUT=null;
+function buildToneLUT(){
+  // 8bitバッファ値 i → 出力係数。raw = (i/255)/SPREAD_PRE（加算前の本来の強度）を
+  // out = CAP*(1-exp(-raw/CAP)) に写す（単調・raw小では恒等・raw大で CAP に漸近）。
+  TONE_LUT=new Float32Array(256);
+  TONE_LUT[0]=0;
+  for(var i=1;i<256;i++){
+    var raw=(i/255)/SPREAD_PRE;
+    var out=SPREAD_CAP*(1-Math.exp(-raw/SPREAD_CAP));
+    TONE_LUT[i]=out/(i/255);                              // 画素値へ直接掛ける係数
   }
+}
+function ensureSpreadCanvas(){
+  SPS=Math.max(0.5, 0.5*DPR);
+  var w=Math.max(1,Math.ceil(W*SPS)), h=Math.max(1,Math.ceil(H*SPS));
+  if(!spreadCv){ spreadCv=document.createElement('canvas'); spreadCx=spreadCv.getContext('2d',{willReadFrequently:true}); }
+  if(spreadCv.width!==w || spreadCv.height!==h){ spreadCv.width=w; spreadCv.height=h; }
+  SPW=w; SPH=h;
+  spreadCx.setTransform(SPS,0,0,SPS,0,0);
+}
+function renderSpread(list){
+  ensureSpreadCanvas();
+  var g=spreadCx;
+  g.save(); g.setTransform(1,0,0,1,0,0);
+  g.globalCompositeOperation='source-over';
+  g.fillStyle='#000'; g.fillRect(0,0,SPW,SPH);       // 不透明な黒地＝加算の土台
+  g.restore();
+  GX=g;
+  g.save(); g.globalCompositeOperation='lighter';
+  // 本図の光: インセット枠の中へはみ出させない（枠内は枠の光だけが担当）
+  g.save();
+  if(insets.length){
+    g.beginPath(); g.rect(0,0,W,H);
+    insets.forEach(function(s){ g.rect(s.box.x,s.box.y,s.box.w,s.box.h); });
+    g.clip('evenodd');
+  }
+  paintLayerOrdered(list, null);
+  g.restore();
+  // インセット内の光: それぞれの枠にクリップ
+  insets.forEach(function(s){
+    g.save(); g.beginPath(); g.rect(s.box.x,s.box.y,s.box.w,s.box.h); g.clip();
+    paintLayerOrdered(list, s);
+    g.restore();
+  });
+  g.restore();
+  GX=null;
+  toneMapSpread();
+}
+function paintLayerOrdered(list, ins){
+  // 微光（面の下地）を先に敷き、意味のある光を上に重ねる（加算なので順序は見た目の話）
+  var i,f;
+  for(i=0;i<list.length;i++) if(list[i].ins===ins && list[i].footprint==='haze') drawSpreadOf(list[i]);
+  for(i=0;i<list.length;i++) if(list[i].ins===ins && list[i].footprint==='blob') drawSpreadOf(list[i]);
+  for(i=0;i<list.length;i++){
+    if(list[i].ins!==ins) continue;
+    f=list[i].footprint;
+    if(f!=='haze'&&f!=='blob') drawSpreadOf(list[i]);
+  }
+}
+// 加算バッファに溜まった「網点（ハーフトーン）」を消すための箱フィルタ。
+// Skia(Chrome)はグラデーションの帯を目立たせないため4x4の組織的ディザを掛ける。
+// ディザの位相は全ての塗りで揃っているので、加算合成でN枚重ねるとディザ量もN倍に
+// 積み上がり、現代（500地点超）では振幅0.14の規則的な網点として見えてしまう。
+// 幅4の移動平均は周期4の成分をちょうど零にするので、これで完全に消える
+// （代償はバッファ上0.5px＝画面1pxの平行移動。拡散光の層なので影響はない）。
+var blurTmp=null;   // 再生中に毎フレーム数MiBを確保しないよう、サイズが同じ間は再利用する
+function boxBlur4(d, w, h){
+  if(!blurTmp || blurTmp.length!==w*h*3) blurTmp=new Float32Array(w*h*3);
+  var tmp=blurTmp, x, y, c, s, i;
+  function cl(v,n){ return v<0?0:(v>=n?n-1:v); }
+  for(y=0;y<h;y++){
+    var row=y*w;
+    for(c=0;c<3;c++){
+      s=0;
+      for(i=-2;i<=1;i++) s+=d[((row+cl(i,w))<<2)+c];
+      for(x=0;x<w;x++){
+        tmp[(row+x)*3+c]=s*0.25;
+        s += d[((row+cl(x+2,w))<<2)+c] - d[((row+cl(x-2,w))<<2)+c];
+      }
+    }
+  }
+  for(x=0;x<w;x++){
+    for(c=0;c<3;c++){
+      s=0;
+      for(i=-2;i<=1;i++) s+=tmp[(cl(i,h)*w+x)*3+c];
+      for(y=0;y<h;y++){
+        d[(((y*w)+x)<<2)+c]=s*0.25;
+        s += tmp[(cl(y+2,h)*w+x)*3+c] - tmp[(cl(y-2,h)*w+x)*3+c];
+      }
+    }
+  }
+}
+function toneMapSpread(){
+  if(!TONE_LUT) buildToneLUT();
+  var img=spreadCx.getImageData(0,0,SPW,SPH), d=img.data, n=d.length, i, r,g2,b,m,f;
+  boxBlur4(d, SPW, SPH);
+  for(i=0;i<n;i+=4){
+    r=d[i]; g2=d[i+1]; b=d[i+2];
+    m = r>g2 ? (r>b?r:b) : (g2>b?g2:b);
+    if(m===0) continue;
+    f=TONE_LUT[m];                                  // 色相を保つため最大チャンネル基準で一律に縮める
+    d[i]=r*f; d[i+1]=g2*f; d[i+2]=b*f;
+  }
+  spreadCx.save(); spreadCx.setTransform(1,0,0,1,0,0);
+  spreadCx.putImageData(img,0,0);
+  spreadCx.restore();
+}
+// ---- 核層: 本体キャンバスへ 'lighten'（＝チャンネルごとのmax）で直接描く。
+// ソースを不透明（黒へフェードするグラデーション）にしてあるので合成は厳密なmaxになり、
+// 何地点重なってもピークは各地点の自スコア由来の値を超えない。
+function drawCores(list){
+  cx.save();
+  cx.globalCompositeOperation='lighten';
+  function one(L){
+    var v=L.coreV; if(v<=0.002) return;
+    var cr=L.coreR!==undefined ? L.coreR : coreRadius(L);
+    var R=cr*CORE_HALO;
+    var c0=CORE_COL, s=v;
+    function col(m){ return 'rgb('+Math.round(c0[0]*s*m)+','+Math.round(c0[1]*s*m)+','+
+                             Math.round(c0[2]*s*m)+')'; }
+    var plateau=Math.min(CORE_PLATEAU, cr*0.85)/R;   // 中心の平らな頂上
+    var g=cx.createRadialGradient(L.x,L.y,0,L.x,L.y,R);
+    g.addColorStop(0,        col(1));
+    g.addColorStop(plateau,  col(1));
+    g.addColorStop(cr/R,     col(0.62));
+    g.addColorStop(1,        'rgb(0,0,0)');
+    cx.fillStyle=g; cx.beginPath(); cx.arc(L.x,L.y,R,0,6.2832); cx.fill();
+  }
+  var i;
+  for(i=0;i<list.length;i++) if(!list[i].ins) one(list[i]);
+  insets.forEach(function(s){
+    cx.save(); cx.beginPath(); cx.rect(s.box.x,s.box.y,s.box.w,s.box.h); cx.clip();
+    for(var j=0;j<list.length;j++) if(list[j].ins===s) one(list[j]);
+    cx.restore();
+  });
   cx.restore();
 }
 function drawLabels(list){
@@ -1051,24 +1263,50 @@ function draw(){
   cx.fillStyle='#04060c'; cx.fillRect(0,0,W,H);
   drawLand();
   drawEdges(state.year);
+  drawInsets();                       // 枠の下地（QAでは枠線なし）を先に置く
   lightCache=computeLights(state.year);
-  drawLights(lightCache.filter(function(L){return !L.ins;}));
-  drawInsets();
-  var ins=lightCache.filter(function(L){return L.ins;});
-  if(ins.length){
-    cx.save();
-    insets.forEach(function(s){
-      cx.save(); cx.beginPath(); cx.rect(s.box.x,s.box.y,s.box.w,s.box.h); cx.clip();
-      drawLights(ins.filter(function(L){return L.ins===s;}));
-      cx.restore();
-    });
-    cx.restore();
-  }
+  // (1) 広がり層: 加算で溜め → トーンマップ → 'lighter' で地図の上へ。
+  //     地図の地色（海≈0.05/陸≈0.09）に足すので画面上の広がりは最大 SPREAD_CAP+地色
+  //     （≈0.55）。上位の核（≥0.6）より下に収まる。同じ年・同じ画面の再描画（選択・
+  //     ラベル切替・パネル開閉）ではバッファをそのまま使い、getImageData 走査を省く。
+  var spreadKey=state.year+'|'+W+'|'+H+'|'+DPR+'|'+CURVE_NAME+'|'+insets.length;
+  if(spreadKey!==spreadKeyLast){ renderSpread(lightCache); spreadKeyLast=spreadKey; }
+  cx.save(); cx.globalCompositeOperation='lighter';
+  cx.drawImage(spreadCv, 0,0,SPW,SPH, 0,0,W,H);
+  cx.restore();
+  // (2) 核層: max合成。近接地点があってもピークは自地点の値を超えない
+  drawCores(lightCache);
   drawLabels(lightCache);
   drawSelRing(lightCache);
-  updateHUD();
-  drawTrack();
-  if(state.sel) renderPanel();
+  if(!QA){ updateHUD(); drawTrack(); if(state.sel) renderPanel(); }
+  if(QA_DUMP) writeQADump();
+}
+
+// ============================================================ Visual QA ダンプ
+// ?year=Y&qa=1&dump=1 のとき、いま描いた内容の「期待値」を #qaDump にJSONで書く。
+// tools/viz_qa.py が --dump-dom で回収し、同じ投影の画面座標として使う
+// （Python側へ projFor を移植すると二重管理になるため、ページ側を唯一の正とする）。
+function writeQADump(){
+  var el=document.getElementById('qaDump'); if(!el) return;
+  var insIdx=function(s){ return s? insets.indexOf(s) : -1; };
+  var o={
+    year:state.year, era:eraOf(state.year), jp_era:jpEraOf(Math.round(state.year)),
+    w:W, h:H, dpr:DPR, bp:BP, KC:KC, curve:CURVE_NAME, exposure:exposureAt(state.year),
+    spread:{pre:SPREAD_PRE, cap:SPREAD_CAP, scale:SPS},
+    core:{gamma:CORE_GAMMA, expo_frac:CORE_EXPO_FRAC, r_min:CORE_R_MIN, r_k:CORE_R_K, halo:CORE_HALO},
+    view:{sc:view.sc, ox:view.ox, oy:view.oy},
+    insets:insets.map(function(s){ return {label:s.label, box:s.box, sc:s.sc, ox:s.ox, oy:s.oy,
+      geo:{lon0:s.geo.lon0, lon1:s.geo.lon1, lat0:s.geo.lat0, lat1:s.geo.lat1}}; }),
+    lights:lightCache.map(function(L){
+      return {id:L.p.id, n:L.p.n, lon:L.p.lon, lat:L.p.lat, x:L.x, y:L.y, ins:insIdx(L.ins),
+        score:L.score, k:L.p.k, tier:L.tier||'', role:L.role, fp:L.footprint,
+        coreV:L.coreV, coreR:L.coreR, coreHalo:CORE_HALO,
+        intensity:L.intensity, radius:L.radius, spreadR:L.spreadR,
+        agg:L.agg, aggR:L.aggR, topMul:L.topMul};
+    })
+  };
+  el.textContent=JSON.stringify(o);
+  window.__qaReady=true;
 }
 
 // ============================================================ HUD
@@ -1105,6 +1343,8 @@ function updateAboutTech(){
     '内訳: '+Object.keys(roles).map(function(k){return k+' '+roles[k];}).join(' / ')+'<br>'+
     '輝度カーブ: <b>'+CURVE_NAME+'</b>（既定 anchor＝100→1.00 / 80→0.45 / 60→0.18 / 40→0.06 / 20→0.015）'+
     '　露出 E='+exposureAt(state.year).toFixed(2)+'（ソフトニー・年に対して連続）<br>'+
+    '合成: <b>核＝max（非加算・ピークは自地点スコアのみ）／広がり＝加算のあとトーンマップで上限'+
+    SPREAD_CAP.toFixed(2)+'に圧縮</b>（近傍'+AGG_SIGMA_KM+'kmの凝集度は広がりの半径にだけ効く）<br>'+
     '<span style="color:#6f7b90">?debug=1 を付けた上で ?curve=anchor|gamma|power|exp|log|linear|drc|percentile を指定すると切替（gamma/powerは &amp;g=、expは &amp;k= で係数指定）。?dur= で再生秒数。</span>';
 }
 
@@ -1427,7 +1667,7 @@ function ensureDetails(cb){
   if(detailsLoading) return;
   detailsLoading=true;
   var s=document.createElement('script');
-  s.src='data/details.js?v=13';
+  s.src='data/details.js?v=14';
   s.onload=function(){ detailsLoaded=true; detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
   s.onerror=function(){ detailsLoading=false; detailsLoaded=true; window.PMAP_DETAILS=window.PMAP_DETAILS||{};
     detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
@@ -1529,7 +1769,7 @@ document.addEventListener('keydown',function(e){
 });
 // Visual QA / デバッグ用の外部フック。既定では window を汚さず、?debug=1 の
 // ときだけ公開する（レビュー指摘: デバッグ用グローバルの公開を最小化）。
-if(DEBUG){
+if(DEBUG || QA){
   window.PL = {
     setYear:function(y){ if(state.playing) setPlaying(false); state.year=+y; draw(); return fmtYear(state.year); },
     getYear:function(){ return state.year; },
