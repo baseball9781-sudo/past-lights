@@ -1,0 +1,49 @@
+{
+  "format": "PLC0",
+  "files": [
+    {
+      "mesh_year": 2020,
+      "file": "cells_2020.bin",
+      "count": 52747,
+      "coverage": "partial",
+      "zones": [
+        "5030",
+        "5031",
+        "5130",
+        "5135",
+        "5136",
+        "5234",
+        "5235",
+        "5236",
+        "5237",
+        "5238",
+        "5239",
+        "5335",
+        "5336",
+        "5338",
+        "5339",
+        "5340",
+        "5439",
+        "5440"
+      ],
+      "source_id": "MESH-01",
+      "source": "総務省統計局「令和2年国勢調査」地域メッシュ統計 3次メッシュ 人口総数(T001100001)",
+      "license": "e-Stat利用規約（CC BY 4.0互換・出典表示必須）",
+      "attribution": "出典: 政府統計の総合窓口(e-Stat)（https://www.e-stat.go.jp/）「国勢調査」地域メッシュ統計を加工して作成",
+      "retrieved": "2026-09-14"
+    }
+  ],
+  "display_map": [
+    {
+      "display_year": 2026,
+      "mesh_year": 2020,
+      "footprint_note": "2020年の空間分布をfootprintとして利用（2026年の実測ではない）"
+    },
+    {
+      "display_year": 2000,
+      "mesh_year": 2000,
+      "footprint_note": "同年",
+      "available": false
+    }
+  ]
+}

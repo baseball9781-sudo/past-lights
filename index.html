@@ -1077,7 +1077,13 @@ function paintGlow(x,y,R,c,a,soft,rx,ry,rot,flat){
 }
 // §4/§5 時代別Renderer: footprint ごとに「広がり層」を描き分ける（核はここでは描かない）
 function drawSpreadOf(L){
-  var c=L.color, a=L.intensity*SPREAD_PRE, R=L.spreadR;
+  // セルが面を担う年は、metroの楕円ブロブと T2N/minor の微光ハローを止め、
+  // 残す光（T1の点・港・鉱山）の広がりも小さくする（§3.2）。核層には影響しない。
+  if(cellFrame){
+    if(CELL_KILL_FP[L.footprint]) return;
+  }
+  var c=L.color, a=L.intensity*SPREAD_PRE,
+      R=L.spreadR*(cellFrame?CELL_T1_SPREAD_MUL:1);
   switch(L.footprint){
     case 'blob':                                   // 大都市＝面（楕円ブロブの重ね）
       for(var i=0;i<L.blobs.length;i++){
@@ -1124,6 +1130,8 @@ function ensureSpreadCanvas(){
 }
 function renderSpread(list){
   ensureSpreadCanvas();
+  // セル層の有無をここで確定する（drawSpreadOf と toneMapSpread が参照する）
+  cellFrame = cellFrameFor(state.year);
   var g=spreadCx;
   g.save(); g.setTransform(1,0,0,1,0,0);
   g.globalCompositeOperation='source-over';
@@ -1148,7 +1156,15 @@ function renderSpread(list){
   });
   g.restore();
   GX=null;
-  toneMapSpread();
+  // ?debug=1 のときだけセル層の所要時間を console に出す（再生1フレームの予算確認用）
+  if(cellFrame){
+    if(DEBUG) console.time('cells');
+    renderCellAcc(cellFrame);
+    if(DEBUG) console.timeEnd('cells');
+  }
+  if(DEBUG) console.time('tonemap');
+  toneMapSpread(!!cellFrame);
+  if(DEBUG) console.timeEnd('tonemap');
 }
 function paintLayerOrdered(list, ins){
   // 微光（面の下地）を先に敷き、意味のある光を上に重ねる（加算なので順序は見た目の話）
@@ -1194,21 +1210,290 @@ function boxBlur4(d, w, h){
     }
   }
 }
-function toneMapSpread(){
+function toneMapSpread(withCells){
   if(!TONE_LUT) buildToneLUT();
   var img=spreadCx.getImageData(0,0,SPW,SPH), d=img.data, n=d.length, i, r,g2,b,m,f;
   boxBlur4(d, SPW, SPH);
-  for(i=0;i<n;i+=4){
-    r=d[i]; g2=d[i+1]; b=d[i+2];
-    m = r>g2 ? (r>b?r:b) : (g2>b?g2:b);
-    if(m===0) continue;
-    f=TONE_LUT[m];                                  // 色相を保つため最大チャンネル基準で一律に縮める
-    d[i]=r*f; d[i+1]=g2*f; d[i+2]=b*f;
+  if(!withCells){
+    for(i=0;i<n;i+=4){
+      r=d[i]; g2=d[i+1]; b=d[i+2];
+      m = r>g2 ? (r>b?r:b) : (g2>b?g2:b);
+      if(m===0) continue;
+      f=TONE_LUT[m];                                // 色相を保つため最大チャンネル基準で一律に縮める
+      d[i]=r*f; d[i+1]=g2*f; d[i+2]=b*f;
+    }
+  }else{
+    // セル層は点光源の加算バッファ（8bit）と同じ「加算前の強度(raw)」の土俵へ戻して
+    // から足し、まとめて同じトーンマップ out=CAP*(1-exp(-raw/CAP)) に通す。
+    // こうすると 8bit の量子化が効くのはトーンマップ後の出力側だけになり、
+    // 1セルの寄与（0.03級）が丸められて消えることがない。
+    if(!CELL_TONE) buildCellTone();
+    var cmx=Math.max(CELL_COL[0],CELL_COL[1],CELL_COL[2]);
+    var cr=CELL_COL[0]/cmx, cg=CELL_COL[1]/cmx, cb=CELL_COL[2]/cmx;
+    var p=0, rawB, rawC, tot, out, k, wr, wg, wb;
+    for(i=0;i<n;i+=4,p++){
+      r=d[i]; g2=d[i+1]; b=d[i+2];
+      m = r>g2 ? (r>b?r:b) : (g2>b?g2:b);
+      rawC=cellAcc[p];
+      rawB= m>0 ? (m/255)/SPREAD_PRE : 0;
+      tot=rawB+rawC;
+      if(tot<=0) continue;                          // m>0 なら rawB>0 なので、ここは両方0の画素だけ
+      out=toneOf(tot);
+      k=out*255/tot;
+      // チャンネル比は raw の比で混ぜる（既存層は自分の色、セルは CELL_COL）
+      wr=rawC*cr; wg=rawC*cg; wb=rawC*cb;
+      if(m>0){ wr+=rawB*(r/m); wg+=rawB*(g2/m); wb+=rawB*(b/m); }
+      d[i]=k*wr; d[i+1]=k*wg; d[i+2]=k*wb;
+    }
   }
   spreadCx.save(); spreadCx.setTransform(1,0,0,1,0,0);
   spreadCx.putImageData(img,0,0);
   spreadCx.restore();
 }
+// ============================================================ セル層（近代以降の Layer 1）
+// docs/CELLS_FORMAT_v0.md（形式の正本）・docs/設計案_近代Renderer_v0.md・D-030/D-031。
+//
+//   考え方: 現代の都市圏は「東京の上に巨大なぼかしを1個置く」のではなく、
+//   「1km²の人間活動セルが大量に重なって面として光る」。セルは1個ずつは極めて暗く
+//   （上限固定・人口の強い対数圧縮）、塊は**加算**だけで作る。
+//   セル層は近代以降の広がり層(Layer 1)を置き換える。核層 drawCores は無改変。
+//   セルが無い表示年（1970/1920…）や読み込み失敗時は現行Rendererにそのまま戻る。
+//
+// 描画対象年と使用メッシュ年は分離する（index.json の display_map が正本）。
+// 2026年の表示は2020年メッシュを footprint として使っているだけで2026年の実測ではない。
+
+// 既定の読み込み先。?cellsdir=data/cells_probe/ のように差し替え可（開発用）。
+var CELL_DIR = (function(){
+  var d = QS.cellsdir;
+  if(typeof d!=='string' || !d) return 'data/cells/';
+  if(!/^[A-Za-z0-9_\-.\/]+$/.test(d) || d.indexOf('..')>=0 || d.charAt(0)==='/') return 'data/cells/';
+  return d.replace(/\/+$/,'')+'/';
+})();
+var CELLS_OFF = QS.cells==='0';          // ?cells=0 で強制的に現行Renderer（比較用）
+
+var CELL_POP_K    = 60;      // 対数圧縮の肩（人口がこの程度までは効きが大きい）
+var CELL_POP_REF  = 20000;   // この人口（1km²）で1セルの上限に達する
+var CELL_V_MAX    = 0.030;   // 1セルあたりの輝度上限（基準画素面積あたり・非常に低く固定）
+// 加算バッファ1画素が受け持つ面積(km²)の基準。全国表示(1280x800/DPR1)でおよそこの値に
+// なる。実際の画素面積で割って正規化することで、画面サイズやDPRが変わっても
+// 「同じ面積あたりの人口 → 同じ明るさ」を保つ（画素が細かいほど1セルの寄与を上げる）。
+var CELL_REF_KM2_PER_PX = 21.7;
+var CELL_COL      = [255,236,212];   // セルの色（都市色の低彩度版。セルは種類を持たない）
+// セルが面を担う年は、点光源側の広がりを抑える（§3.2「metroブロブは廃止」）。
+var CELL_KILL_FP  = {blob:1, haze:1}; // metroの楕円ブロブ／T2N・minorの微光ハローを止める
+var CELL_T1_SPREAD_MUL = 0.55;        // 残す光（T1の点・港・鉱山）の広がり半径の倍率
+var CELL_TONE_MAX = 4.0;              // トーンマップLUTの入力上限（これ以上はCAPに漸近）
+// セル層にも既存の4px箱フィルタを通す（仕様§「箱フィルタ以上にぼかさない」）。
+// 箱フィルタは本来 Skia のグラデーション用ディザ（規則的な網点）を消すためのもので、
+// 直接加算するセル層には原理的に不要。幅4はバッファ上4px＝全国表示で約19kmあり、
+// 都市圏内部の5〜20kmの構造（谷・丘陵）まで均してしまう。既定は仕様どおりONだが、
+// ?cellblur=0 で外した画を比較できるようにしてある（PM裁定用）。
+var CELL_BLUR_PASS = QS.cellblur!=='0';
+
+var cellIndex=null;                   // index.json
+var cellSets=Object.create(null);     // mesh_year -> セット
+var cellsRev=0;                       // 読み込み世代（広がり層バッファのキーに混ぜる）
+var cellNote='';                      // 読み込み結果のメモ（qaDump/Aboutに出す）
+var cellFrame=null;                   // いま描いているフレームのセル情報（null＝フォールバック）
+var cellAcc=null, cellBlurTmp=null;
+
+// ---- バイナリ（PLC0）→ セット
+// header: "PLC0" | uint16 mesh_year | uint16 reserved | uint32 count
+// record: uint32 meshcode(8桁) | uint16 pop
+function parseCells(buf, meta){
+  var dv=new DataView(buf);
+  if(buf.byteLength<12) throw new Error('too short');
+  if(dv.getUint8(0)!==80||dv.getUint8(1)!==76||dv.getUint8(2)!==67||dv.getUint8(3)!==48)
+    throw new Error('bad magic');
+  var hdrYear=dv.getUint16(4,true), count=dv.getUint32(8,true);
+  if(12+count*6>buf.byteLength) throw new Error('truncated');
+  var lat=new Float32Array(count), lon=new Float32Array(count), val=new Float32Array(count);
+  var denom=Math.log(1+CELL_POP_REF/CELL_POP_K), off=12, i, code, pop, p,u,q,v,r,w;
+  for(i=0;i<count;i++){
+    code=dv.getUint32(off,true); pop=dv.getUint16(off+4,true); off+=6;
+    // 仕様§3: 8桁 ppuuqvrw → 3次メッシュ中心
+    p=(code/1000000)|0; u=((code/10000)|0)%100;
+    q=((code/1000)|0)%10; v=((code/100)|0)%10; r=((code/10)|0)%10; w=code%10;
+    lat[i]=p/1.5 + q/12 + r/120 + 1/240;
+    lon[i]=u+100 + v/8  + w/80  + 1/160;
+    // 人口の強い対数圧縮 × 低い上限。1セルの明るさの差は小さく、塊は数で作る。
+    val[i]=CELL_V_MAX*Math.min(1, Math.log(1+pop/CELL_POP_K)/denom);
+  }
+  return {mesh_year:(meta&&meta.mesh_year!==undefined)?+meta.mesh_year:hdrYear,
+          header_mesh_year:hdrYear, count:count, lat:lat, lon:lon, val:val,
+          coverage:(meta&&meta.coverage)||'', attribution:(meta&&meta.attribution)||'',
+          source:(meta&&meta.source)||'', px:null, pxKey:''};
+}
+
+// ---- 読み込み。QA（headless Chromeの1発スクリーンショット）では非同期だと
+// 描画に間に合わないため同期XHRで読む。通常の閲覧では fetch で読み、届いたら再描画。
+function xhrSync(url, binary){
+  var x=new XMLHttpRequest();
+  x.open('GET', url, false);
+  if(binary && x.overrideMimeType) x.overrideMimeType('text/plain; charset=x-user-defined');
+  x.send(null);
+  if(x.status && (x.status<200||x.status>=300)) throw new Error('HTTP '+x.status);
+  var s=x.responseText||'';
+  if(!s.length) throw new Error('empty');
+  if(!binary) return s;
+  var n=s.length, b=new Uint8Array(n);
+  for(var i=0;i<n;i++) b[i]=s.charCodeAt(i)&0xff;
+  return b.buffer;
+}
+function cellFileList(){
+  return ((cellIndex&&cellIndex.files)||[]).filter(function(f){
+    return f && f.file && f.available!==false && typeof f.file==='string' &&
+           /^[A-Za-z0-9_\-.]+$/.test(f.file);
+  });
+}
+function loadCells(){
+  if(CELLS_OFF){ cellNote='?cells=0（セル層を無効化）'; return; }
+  var idxUrl=CELL_DIR+'index.json';
+  if(QA){
+    try{ cellIndex=JSON.parse(xhrSync(idxUrl,false)); }
+    catch(e){ cellNote='index.json なし → 現行Rendererへフォールバック'; return; }
+    cellFileList().forEach(function(f){
+      try{ cellSets[+f.mesh_year]=parseCells(xhrSync(CELL_DIR+f.file,true), f); }
+      catch(e){ cellNote+=' ['+f.file+': '+e.message+']'; }
+    });
+    cellsRev++;
+    return;
+  }
+  if(!window.fetch){ cellNote='fetch非対応 → フォールバック'; return; }
+  fetch(idxUrl).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(function(j){
+      cellIndex=j;
+      return Promise.all(cellFileList().map(function(f){
+        return fetch(CELL_DIR+f.file).then(function(r){
+          if(!r.ok) throw new Error('HTTP '+r.status); return r.arrayBuffer();
+        }).then(function(b){ cellSets[+f.mesh_year]=parseCells(b,f); })
+          .catch(function(e){ cellNote+=' ['+f.file+': '+e.message+']'; });
+      }));
+    })
+    .then(function(){ cellsRev++; updateSourceLine(); updateAboutTech(); draw(); })
+    .catch(function(e){ cellIndex=null; cellNote='index.json 読み込み失敗 → フォールバック'; });
+}
+
+// ---- 表示年 → 使うメッシュ年（display_map が正本）
+// 代表時点の間はメッシュコード単位のクロスフェード。加算バッファへ重み付きで
+// 両方を足すので、片方に無いセルは自動的に0として扱われる（仕様§4末尾と同義）。
+function cellFrameFor(y){
+  if(!cellIndex) return null;
+  var dm=((cellIndex.display_map)||[]).filter(function(e){ return e && isFinite(+e.display_year); })
+        .slice().sort(function(a,b){ return (+a.display_year)-(+b.display_year); });
+  if(!dm.length) return null;
+  if(y < +dm[0].display_year) return null;          // セルのある時代より前＝現行Renderer
+  var a=dm[dm.length-1], b=null, w=0, i, span;
+  for(i=0;i<dm.length-1;i++){
+    if(y>=+dm[i].display_year && y<=+dm[i+1].display_year){
+      a=dm[i]; b=dm[i+1];
+      span=(+b.display_year)-(+a.display_year);
+      w= span>0 ? (y-(+a.display_year))/span : 1;
+      break;
+    }
+  }
+  // available:false（binが未取得の代表時点）は「その側は無い」として扱い、
+  // 反対側のメッシュだけで描く。クロスフェード自体は両方揃えば自動的に効く。
+  var sa=(a.available===false)?null:cellSets[+a.mesh_year];
+  var sb=(b&&b.available!==false)?cellSets[+b.mesh_year]:null, parts=[];
+  if(sa&&sb){
+    if(w<1) parts.push({set:sa, ent:a, wt:1-w});
+    if(w>0) parts.push({set:sb, ent:b, wt:w});
+  }else if(sa){ parts.push({set:sa, ent:a, wt:1});
+  }else if(sb){ parts.push({set:sb, ent:b, wt:1}); }
+  if(!parts.length) return null;
+  var main=parts[0]; for(i=1;i<parts.length;i++) if(parts[i].wt>main.wt) main=parts[i];
+  var total=0; for(i=0;i<parts.length;i++) total+=parts[i].set.count;
+  var note=(main.ent.footprint_note||'');
+  if(parts.length>1){
+    note+='（'+parts.map(function(q){
+      return q.set.mesh_year+'×'+q.wt.toFixed(2); }).join(' + ')+' のクロスフェード）';
+  }else if(b){
+    // 代表時点の片側のメッシュがまだ無い＝残った側のメッシュだけで描いている
+    var miss=(parts[0].ent===a? b : a);
+    note+='（'+miss.display_year+'年側のメッシュ未取得のため '+main.set.mesh_year+
+          '年メッシュのみで描画）';
+  }
+  return {parts:parts, display_year:y, mesh_year:main.set.mesh_year, count:total,
+          coverage:main.set.coverage, footprint_note:note,
+          attribution:main.set.attribution};
+}
+
+// ---- セルを加算バッファ（Float32・広がり層と同解像度）へ画素として足す
+// drawImage/arc は1回も使わない。1セル＝1画素の加算のみ。
+function inAnyInsetBox(x,y){
+  for(var i=0;i<insets.length;i++){
+    var b=insets[i].box;
+    if(x>=b.x && x<b.x+b.w && y>=b.y && y<b.y+b.h) return true;
+  }
+  return false;
+}
+function cellPixelKey(){
+  return W+'x'+H+'|'+DPR+'|'+BP+'|'+SPW+'x'+SPH+'|'+insets.length+'|'+
+         view.sc.toFixed(4)+'|'+view.ox.toFixed(2)+'|'+view.oy.toFixed(2);
+}
+// セルの画面位置は「年」に依存しない。投影が変わったときだけ画素indexを作り直す
+// （再生中は毎フレームこのキャッシュを使うので、1フレームの仕事は加算ループだけ）。
+function ensureCellPixels(set){
+  var key=cellPixelKey();
+  if(set.pxKey===key) return;
+  var n=set.count, px=set.px;
+  if(!px||px.length!==n) px=set.px=new Int32Array(n);
+  for(var i=0,q,xb,yb;i<n;i++){
+    q=projFor(set.lon[i], set.lat[i]);
+    if(q[0]===null){ px[i]=-1; continue; }              // 今の画面幅で非表示のインセット
+    if(!q[2] && insets.length && inAnyInsetBox(q[0],q[1])){ px[i]=-1; continue; }
+    xb=Math.floor(q[0]*SPS); yb=Math.floor(q[1]*SPS);
+    px[i] = (xb<0||yb<0||xb>=SPW||yb>=SPH) ? -1 : yb*SPW+xb;
+  }
+  set.pxKey=key;
+}
+// boxBlur4 と同じ幅4の移動平均（1チャンネル版）。網点対策であり、これ以上ぼかさない。
+function boxBlur4f(d, w, h){
+  if(!cellBlurTmp || cellBlurTmp.length!==w*h) cellBlurTmp=new Float32Array(w*h);
+  var tmp=cellBlurTmp, x, y, s, i;
+  function cl(v,n){ return v<0?0:(v>=n?n-1:v); }
+  for(y=0;y<h;y++){
+    var row=y*w; s=0;
+    for(i=-2;i<=1;i++) s+=d[row+cl(i,w)];
+    for(x=0;x<w;x++){ tmp[row+x]=s*0.25; s+=d[row+cl(x+2,w)]-d[row+cl(x-2,w)]; }
+  }
+  for(x=0;x<w;x++){
+    s=0;
+    for(i=-2;i<=1;i++) s+=tmp[cl(i,h)*w+x];
+    for(y=0;y<h;y++){ d[y*w+x]=s*0.25; s+=tmp[cl(y+2,h)*w+x]-tmp[cl(y-2,h)*w+x]; }
+  }
+}
+function renderCellAcc(frame){
+  var n=SPW*SPH;
+  if(!cellAcc || cellAcc.length!==n) cellAcc=new Float32Array(n); else cellAcc.fill(0);
+  // 1画素が受け持つ面積で正規化（投影は緯度経度とも 111/(sc) km/px）
+  var kmPerPx=111.0/Math.max(1e-6, view.sc*SPS);
+  var gain=CELL_REF_KM2_PER_PX/(kmPerPx*kmPerPx);
+  for(var t=0;t<frame.parts.length;t++){
+    var set=frame.parts[t].set, wt=frame.parts[t].wt*gain;
+    ensureCellPixels(set);
+    var px=set.px, val=set.val, m=set.count, k;
+    for(var i=0;i<m;i++){ k=px[i]; if(k<0) continue; cellAcc[k]+=val[i]*wt; }
+  }
+  if(CELL_BLUR_PASS) boxBlur4f(cellAcc, SPW, SPH);
+}
+// トーンマップ（加算後の raw → 出力）をLUT化。画素ごとの Math.exp を避ける。
+var CELL_TONE=null;
+function buildCellTone(){
+  CELL_TONE=new Float32Array(1025);
+  for(var i=0;i<=1024;i++){
+    var raw=CELL_TONE_MAX*i/1024;
+    CELL_TONE[i]=SPREAD_CAP*(1-Math.exp(-raw/SPREAD_CAP));
+  }
+}
+function toneOf(raw){
+  if(raw<=0) return 0;
+  if(raw>=CELL_TONE_MAX) return SPREAD_CAP*(1-Math.exp(-raw/SPREAD_CAP));
+  var f=raw*(1024/CELL_TONE_MAX), i=f|0, t=f-i;
+  return CELL_TONE[i]*(1-t)+CELL_TONE[i+1]*t;
+}
+
 // ---- 核層: 本体キャンバスへ 'lighten'（＝チャンネルごとのmax）で直接描く。
 // ソースを不透明（黒へフェードするグラデーション）にしてあるので合成は厳密なmaxになり、
 // 何地点重なってもピークは各地点の自スコア由来の値を超えない。
@@ -1269,7 +1554,7 @@ function draw(){
   //     地図の地色（海≈0.05/陸≈0.09）に足すので画面上の広がりは最大 SPREAD_CAP+地色
   //     （≈0.55）。上位の核（≥0.6）より下に収まる。同じ年・同じ画面の再描画（選択・
   //     ラベル切替・パネル開閉）ではバッファをそのまま使い、getImageData 走査を省く。
-  var spreadKey=state.year+'|'+W+'|'+H+'|'+DPR+'|'+CURVE_NAME+'|'+insets.length;
+  var spreadKey=state.year+'|'+W+'|'+H+'|'+DPR+'|'+CURVE_NAME+'|'+insets.length+'|c'+cellsRev;
   if(spreadKey!==spreadKeyLast){ renderSpread(lightCache); spreadKeyLast=spreadKey; }
   cx.save(); cx.globalCompositeOperation='lighter';
   cx.drawImage(spreadCv, 0,0,SPW,SPH, 0,0,W,H);
@@ -1293,6 +1578,18 @@ function writeQADump(){
     year:state.year, era:eraOf(state.year), jp_era:jpEraOf(Math.round(state.year)),
     w:W, h:H, dpr:DPR, bp:BP, KC:KC, curve:CURVE_NAME, exposure:exposureAt(state.year),
     spread:{pre:SPREAD_PRE, cap:SPREAD_CAP, scale:SPS},
+    // セル層（docs/CELLS_FORMAT_v0.md §5）。count=0 はセルを使っていない年＝現行Renderer。
+    // mesh_year は「描画に使ったメッシュ年」で、display_year（描画対象年）とは別物。
+    cells: cellFrame ? {
+        display_year:cellFrame.display_year, mesh_year:cellFrame.mesh_year,
+        count:cellFrame.count, coverage:cellFrame.coverage,
+        footprint_note:cellFrame.footprint_note,
+        v_max:CELL_V_MAX, pop_ref:CELL_POP_REF, pop_k:CELL_POP_K,
+        km2_per_px:+(111.0/Math.max(1e-6,view.sc*SPS)*(111.0/Math.max(1e-6,view.sc*SPS))).toFixed(3),
+        parts:cellFrame.parts.map(function(q){
+          return {mesh_year:q.set.mesh_year, weight:+q.wt.toFixed(4), count:q.set.count}; })
+      } : {display_year:state.year, mesh_year:null, count:0, coverage:'',
+           footprint_note:'セル無し（現行Rendererへフォールバック）'+(cellNote?' / '+cellNote:'')},
     core:{gamma:CORE_GAMMA, expo_frac:CORE_EXPO_FRAC, r_min:CORE_R_MIN, r_k:CORE_R_K, halo:CORE_HALO},
     view:{sc:view.sc, ox:view.ox, oy:view.oy},
     insets:insets.map(function(s){ return {label:s.label, box:s.box, sc:s.sc, ox:s.ox, oy:s.oy,
@@ -1345,6 +1642,10 @@ function updateAboutTech(){
     '　露出 E='+exposureAt(state.year).toFixed(2)+'（ソフトニー・年に対して連続）<br>'+
     '合成: <b>核＝max（非加算・ピークは自地点スコアのみ）／広がり＝加算のあとトーンマップで上限'+
     SPREAD_CAP.toFixed(2)+'に圧縮</b>（近傍'+AGG_SIGMA_KM+'kmの凝集度は広がりの半径にだけ効く）<br>'+
+    '広がりの元データ: '+(cellFrame
+      ? '<b>光のセル</b>（1km²メッシュ '+cellFrame.count.toLocaleString()+' セルの加算 / メッシュ年 '+
+        cellFrame.mesh_year+'・範囲 '+(cellFrame.coverage||'—')+'）'
+      : '地点（点＋線）')+'<br>'+
     '<span style="color:#6f7b90">?debug=1 を付けた上で ?curve=anchor|gamma|power|exp|log|linear|drc|percentile を指定すると切替（gamma/powerは &amp;g=、expは &amp;k= で係数指定）。?dur= で再生秒数。</span>';
 }
 
@@ -1515,7 +1816,20 @@ document.getElementById('btnInfo').addEventListener('click',function(){
 });
 document.getElementById('mClose').addEventListener('click',function(){modal.classList.remove('open');});
 modal.addEventListener('click',function(e){ if(e.target===modal) modal.classList.remove('open'); });
-document.getElementById('mSrc').textContent='データ出典 — '+D.meta.sources;
+// 出典行。セルのデータセットを読んでいる場合は index.json の attribution を必ず併記する
+// （e-Stat利用規約＝出典表示必須。docs/CELLS_FORMAT_v0.md §5）。
+function updateSourceLine(){
+  var el=document.getElementById('mSrc'); if(!el) return;
+  var s='データ出典 — '+D.meta.sources, seen={};
+  ((cellIndex&&cellIndex.files)||[]).forEach(function(f){
+    if(!f || !f.attribution || seen[f.attribution]) return;
+    if(!cellSets[+f.mesh_year]) return;               // 実際に読み込めたものだけ
+    seen[f.attribution]=1;
+    s+=' ／ 光のセル（'+f.mesh_year+'年メッシュ）— '+f.attribution;
+  });
+  el.textContent=s;
+}
+updateSourceLine();
 
 // ============================================================ ヒットテスト
 // 点灯中の地点を優先してヒットテストするが、上位TOPN選抜から漏れて消灯している
@@ -1779,6 +2093,9 @@ if(DEBUG || QA){
     mineTrans:MINE_TRANS, isMineClosedAt:isMineClosedAt, roleOf:roleOf, topNMul:topNMul
   };
 }
+// 光のセル（近代以降のLayer 1）。読めなければ何もせず現行Rendererのまま。
+loadCells();
+updateSourceLine();
 resize();
 state.year = QS.year!==undefined ? (+QS.year||1700) : 1700;
 draw();
