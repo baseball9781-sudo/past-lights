@@ -1283,12 +1283,16 @@ var CELL_COL      = [255,236,212];   // セルの色（都市色の低彩度版�
 var CELL_KILL_FP  = {blob:1, haze:1}; // metroの楕円ブロブ／T2N・minorの微光ハローを止める
 var CELL_T1_SPREAD_MUL = 0.55;        // 残す光（T1の点・港・鉱山）の広がり半径の倍率
 var CELL_TONE_MAX = 4.0;              // トーンマップLUTの入力上限（これ以上はCAPに漸近）
-// セル層にも既存の4px箱フィルタを通す（仕様§「箱フィルタ以上にぼかさない」）。
-// 箱フィルタは本来 Skia のグラデーション用ディザ（規則的な網点）を消すためのもので、
-// 直接加算するセル層には原理的に不要。幅4はバッファ上4px＝全国表示で約19kmあり、
-// 都市圏内部の5〜20kmの構造（谷・丘陵）まで均してしまう。既定は仕様どおりONだが、
-// ?cellblur=0 で外した画を比較できるようにしてある（PM裁定用）。
-var CELL_BLUR_PASS = QS.cellblur!=='0';
+// セル層に4px箱フィルタを掛けるか。**既定OFF**（2026-09-14 PM裁定）。
+// 箱フィルタは本来 Skia のグラデーション塗りに入る規則的ディザ（網点）を消すための
+// もので、画素として直接加算するセル層には原理的に不要。幅4はバッファ上4px＝全国表示で
+// 約19kmあり、都市圏内部の5〜20kmの構造（平野と山地の境・谷筋）まで均してしまう。
+// 採用理由（部分データ52,747セル・1280x800で実測）: ON→OFF で
+//   東京圏の高周波テクスチャ texture 0.0204 → 0.0254（QA(h) 基準0.020）
+//   名古屋-大阪の谷 ratio 0.214 → 0.18 級（QA(f) 基準0.35以下・小さいほど良い）
+// セル**以外**の広がり層（点光源の加算バッファ）には従来どおり boxBlur4 を掛ける
+// ＝セルが無い年の描画は一切変わらない。?cellblur=1 で掛けた画を比較できる。
+var CELL_BLUR_PASS = QS.cellblur==='1';
 
 var cellIndex=null;                   // index.json
 var cellSets=Object.create(null);     // mesh_year -> セット
@@ -1434,17 +1438,22 @@ function cellPixelKey(){
 }
 // セルの画面位置は「年」に依存しない。投影が変わったときだけ画素indexを作り直す
 // （再生中は毎フレームこのキャッシュを使うので、1フレームの仕事は加算ループだけ）。
+// grp は「どの投影で描かれたか」＝画素あたりの実面積が違うグループ。
+// -2: narrowの圧縮南西諸島（view.sc*SW_COMPRESS） / -1: 本図 / 0..: insets[i]
 function ensureCellPixels(set){
   var key=cellPixelKey();
   if(set.pxKey===key) return;
-  var n=set.count, px=set.px;
+  var n=set.count, px=set.px, grp=set.grp;
   if(!px||px.length!==n) px=set.px=new Int32Array(n);
+  if(!grp||grp.length!==n) grp=set.grp=new Int8Array(n);
   for(var i=0,q,xb,yb;i<n;i++){
     q=projFor(set.lon[i], set.lat[i]);
     if(q[0]===null){ px[i]=-1; continue; }              // 今の画面幅で非表示のインセット
     if(!q[2] && insets.length && inAnyInsetBox(q[0],q[1])){ px[i]=-1; continue; }
     xb=Math.floor(q[0]*SPS); yb=Math.floor(q[1]*SPS);
     px[i] = (xb<0||yb<0||xb>=SPW||yb>=SPH) ? -1 : yb*SPW+xb;
+    grp[i] = q[2] ? insets.indexOf(q[2])
+                  : ((BP==='narrow' && inBBox(set.lon[i], set.lat[i], INSET_SW)) ? -2 : -1);
   }
   set.pxKey=key;
 }
@@ -1464,17 +1473,33 @@ function boxBlur4f(d, w, h){
     for(y=0;y<h;y++){ d[y*w+x]=s*0.25; s+=tmp[cl(y+2,h)*w+x]-tmp[cl(y-2,h)*w+x]; }
   }
 }
+// 1画素が受け持つ面積で正規化（この投影は緯度・経度とも 111/sc km/px）。
+// インセットは本図と縮尺が違う＝1画素に入るセル数が違うので、係数も投影ごとに出す。
+// これをやらないと、縮尺の小さいインセット（南西諸島・小笠原）の枠内だけが過剰に明るくなる。
+function cellGainFor(sc){
+  var kmPerPx=111.0/Math.max(1e-6, sc*SPS);
+  return CELL_REF_KM2_PER_PX/(kmPerPx*kmPerPx);
+}
+function cellGainTable(){
+  // 添字 = grp+2（0:圧縮南西諸島 / 1:本図 / 2..:insets[i]）
+  var t=new Float32Array(2+insets.length);
+  t[0]=cellGainFor(view.sc*SW_COMPRESS);
+  t[1]=cellGainFor(view.sc);
+  for(var i=0;i<insets.length;i++) t[2+i]=cellGainFor(insets[i].sc);
+  return t;
+}
 function renderCellAcc(frame){
   var n=SPW*SPH;
   if(!cellAcc || cellAcc.length!==n) cellAcc=new Float32Array(n); else cellAcc.fill(0);
-  // 1画素が受け持つ面積で正規化（投影は緯度経度とも 111/(sc) km/px）
-  var kmPerPx=111.0/Math.max(1e-6, view.sc*SPS);
-  var gain=CELL_REF_KM2_PER_PX/(kmPerPx*kmPerPx);
+  var gains=cellGainTable();
   for(var t=0;t<frame.parts.length;t++){
-    var set=frame.parts[t].set, wt=frame.parts[t].wt*gain;
+    var set=frame.parts[t].set, wt=frame.parts[t].wt;
     ensureCellPixels(set);
-    var px=set.px, val=set.val, m=set.count, k;
-    for(var i=0;i<m;i++){ k=px[i]; if(k<0) continue; cellAcc[k]+=val[i]*wt; }
+    var px=set.px, grp=set.grp, val=set.val, m=set.count, k;
+    for(var i=0;i<m;i++){
+      k=px[i]; if(k<0) continue;
+      cellAcc[k]+=val[i]*wt*gains[grp[i]+2];
+    }
   }
   if(CELL_BLUR_PASS) boxBlur4f(cellAcc, SPW, SPH);
 }
@@ -1584,8 +1609,11 @@ function writeQADump(){
         display_year:cellFrame.display_year, mesh_year:cellFrame.mesh_year,
         count:cellFrame.count, coverage:cellFrame.coverage,
         footprint_note:cellFrame.footprint_note,
-        v_max:CELL_V_MAX, pop_ref:CELL_POP_REF, pop_k:CELL_POP_K,
+        v_max:CELL_V_MAX, pop_ref:CELL_POP_REF, pop_k:CELL_POP_K, blur:CELL_BLUR_PASS,
         km2_per_px:+(111.0/Math.max(1e-6,view.sc*SPS)*(111.0/Math.max(1e-6,view.sc*SPS))).toFixed(3),
+        // インセットは別縮尺。枠内が過剰に明るくならないよう係数を分けている
+        km2_per_px_insets:insets.map(function(s){
+          var q=111.0/Math.max(1e-6,s.sc*SPS); return +(q*q).toFixed(3); }),
         parts:cellFrame.parts.map(function(q){
           return {mesh_year:q.set.mesh_year, weight:+q.wt.toFixed(4), count:q.set.count}; })
       } : {display_year:state.year, mesh_year:null, count:0, coverage:'',
