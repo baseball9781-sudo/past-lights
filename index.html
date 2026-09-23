@@ -1412,9 +1412,10 @@ function cellFrameFor(y){
   if(parts.length>1){
     note+='（'+parts.map(function(q){
       return q.set.mesh_year+'×'+q.wt.toFixed(2); }).join(' + ')+' のクロスフェード）';
-  }else if(b){
-    // 代表時点の片側のメッシュがまだ無い＝残った側のメッシュだけで描いている
-    var miss=(parts[0].ent===a? b : a);
+  }else if(b && !(sa&&sb)){
+    // 代表時点の片側のメッシュが本当に無い（available:false／bin欠落）ときだけ注記する。
+    // 両方あって w が 0 か 1（＝代表時点ちょうど）の場合は片側だけで描くのが正しく、注記しない。
+    var miss=(sa? b : a);
     note+='（'+miss.display_year+'年側のメッシュ未取得のため '+main.set.mesh_year+
           '年メッシュのみで描画）';
   }
