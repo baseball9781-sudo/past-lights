@@ -335,6 +335,9 @@ if(QA){
 var STYLE = QS.style==='night' ? 'night' : 'heat';
 var HEAT = STYLE==='heat';
 var HEAT_OFF = HEAT && QS.heat==='0';
+// QA計測専用: 線（海岸線・県境）の上では「下地−ヒート」の濃度指標が成り立たないので、
+// tools/viz_qa_heat.py は線なしの下地で測る。QAモード以外では効かない。
+var QA_NOLINES = HEAT && QS.qa==='1' && QS.lines==='0';
 if(!HEAT) document.body.classList.add('night');
 
 // 色＝場所の種類（§13: 彩度はこれ以上上げない）。scale/core/softは形の性格。
@@ -867,6 +870,9 @@ function drawInsets(){
 // §5: 近世以降は交通網を「常時うっすら」下地として描く（トグルONで通常の濃さ）。
 // 演出ではなく、点だけでは見えない「つながり」を時代の空間構造として出すため。
 function drawEdges(y){
+  // QA計測専用（?qa=1&style=night&lines=0）: ヒートの単調性検査で夜景と比べるとき、近代の
+  // 交通網の線（ERA_NET）が輝度に混ざるのを避ける。既定の描画（lines指定なし）は不変。
+  if(QS.qa==='1' && QS.lines==='0') return;
   var gain = state.edges ? 1 : (ERA_NET[eraOf(y)]||0);
   if(gain<=0) return;
   cx.save(); cx.lineCap='round';
@@ -1833,7 +1839,8 @@ function strokePrefClipped(polys, proj){
 function drawLandHeat(){
   var polys=heatLandPolys();
   cx.fillStyle=HP.land; cx.strokeStyle=HP.coast; cx.lineWidth=1;
-  polys.forEach(function(e){ polyPath(COAST[e.k], e.proj); cx.fill(); cx.stroke(); });
+  polys.forEach(function(e){ polyPath(COAST[e.k], e.proj); cx.fill(); if(!QA_NOLINES) cx.stroke(); });
+  if(QA_NOLINES) return;   // QA計測用（?qa=1&lines=0）: 海岸線・県境の線を引かず、下地を陸と海の地色だけにする
   // 本図: 本州等は projMain、狭幅の南西諸島は圧縮投影で別々に clip する
   strokePrefClipped(polys.filter(function(e){ return e.proj===projMain; }), projMain);
   if(BP==='narrow') strokePrefClipped(polys.filter(function(e){ return e.proj===projCompressedSW; }), projCompressedSW);
@@ -1849,10 +1856,10 @@ function drawInsetsHeat(){
     var polys=[];
     Object.keys(COAST).forEach(function(k){
       if(!set[k]) return;
-      polyPath(COAST[k], pj); cx.fill(); cx.stroke();
+      polyPath(COAST[k], pj); cx.fill(); if(!QA_NOLINES) cx.stroke();
       polys.push({k:k, proj:pj});
     });
-    strokePrefClipped(polys, pj);
+    if(!QA_NOLINES) strokePrefClipped(polys, pj);
     cx.restore();
     if(QA) return;
     cx.strokeStyle=HP.insetFrame; cx.lineWidth=1; cx.strokeRect(b.x+.5,b.y+.5,b.w,b.h);
@@ -1888,10 +1895,18 @@ function drawEdgesHeat(y){
 }
 // 主要都市名: 濃色文字＋白フチ。スコア上位から、重ならないものだけ。
 function shortName(n){
-  n=String(n||'');
+  n=String(n||'').replace(/（[^）]*）/g,'');             // 足尾銅山（日光市）→足尾銅山
   if(/都区部$/.test(n)) return n.replace(/都区部$/,'');
   if(/市$/.test(n) && !/日市$/.test(n) && n.length>=2) return n.slice(0,-1);
+  if(/跡$/.test(n) && n.length>=3) return n.slice(0,-1);   // 石見銀山跡→石見銀山（当時は「跡」ではない）
   return n;
+}
+// 地図ラベルの時代名。明確に時代錯誤になるものだけ（hn は複数時代の名が混在するので機械的には使わない）。
+var LABEL_BEFORE = { tokyo:[1868,'江戸'], osaka:[1868,'大坂'] };
+function labelName(p, y){
+  var o=LABEL_BEFORE[p.id];
+  if(o && y<o[0]) return o[1];
+  return shortName(p.n);
 }
 function drawLabelsHeat(list){
   if(!state.labels) return;
@@ -1902,7 +1917,7 @@ function drawLabelsHeat(list){
   cx.font='600 12px "Hiragino Sans","Yu Gothic",sans-serif';
   cx.textBaseline='middle'; cx.lineJoin='round';
   for(var i=0;i<cand.length && placed.length<maxN;i++){
-    var L=cand[i], t=shortName(L.p.n);
+    var L=cand[i], t=labelName(L.p, state.year);
     if(!t || seen[t]) continue;
     var tw=cx.measureText(t).width, off=Math.max(5,(L.coreR||2)+3);
     var rc={x:L.x+off-2, y:L.y-8, w:tw+4, h:16};
