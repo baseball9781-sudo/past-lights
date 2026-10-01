@@ -268,7 +268,7 @@
 <pre id="qaDump" style="display:none"></pre>
 
 <script src="coastline.js?v=14"></script>
-<script src="data/bundle.js?v=14"></script>
+<script src="data/bundle.js?v=15"></script>
 <!-- 時代の上限 C(y) 用の総人口表（追補4）。tools/build_era_population.py で json から生成。無ければ C=1 -->
 <script src="data/era_population.js?v=1"></script>
 <!-- 県境（現行の都道府県界・Natural Earth PD）。無くても描画は落ちない（PMAP_PREF_LINES 未定義なら描かない） -->
@@ -2398,7 +2398,7 @@ function ensureDetails(cb){
   if(detailsLoading) return;
   detailsLoading=true;
   var s=document.createElement('script');
-  s.src='data/details.js?v=14';
+  s.src='data/details.js?v=15';
   s.onload=function(){ detailsLoaded=true; detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
   s.onerror=function(){ detailsLoading=false; detailsLoaded=true; window.PMAP_DETAILS=window.PMAP_DETAILS||{};
     detailsCbs.forEach(function(f){f();}); detailsCbs=[]; };
