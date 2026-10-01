@@ -2567,7 +2567,7 @@ function applyHeatTexts(){
     p0.textContent='以下の「光」「明るさ」は、この地図の色の濃さの元になっている強さのことです（同じ強さを夜景として描く表示 ?style=night も残しています）。';
     det.insertBefore(p0, det.querySelector('p'));
   }
-  state.labels=true; $('btnLabel').classList.add('on');   // 主要都市名は既定で表示
+  // 全国表示では地名を既定で出さない（2026-10-01 ユーザー指示）。「地名」ボタンで表示できる。
 }
 applyHeatTexts();
 // 光のセル（近代以降のLayer 1）。読めなければ何もせず現行Rendererのまま。
