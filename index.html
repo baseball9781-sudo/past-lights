@@ -269,6 +269,8 @@
 
 <script src="coastline.js?v=14"></script>
 <script src="data/bundle.js?v=14"></script>
+<!-- 時代の上限 C(y) 用の総人口表（追補4）。tools/build_era_population.py で json から生成。無ければ C=1 -->
+<script src="data/era_population.js?v=1"></script>
 <!-- 県境（現行の都道府県界・Natural Earth PD）。無くても描画は落ちない（PMAP_PREF_LINES 未定義なら描かない） -->
 <script src="prefectures.js?v=1"></script>
 <script>
@@ -351,11 +353,12 @@ var TYPE = {
 function bandOf(s){ return s>=88?'S': s>=70?'A': s>=50?'B': s>=30?'C':'D'; }
 // T2N（全市区町村機械生成のTier2 National）は研究地点(T1/T2)よりわずかに
 // 控えめに描画する（研究済み地点をわずかに優先＝ユーザー指示）。
-var T2N_BRIGHT_MUL = 0.55, T2N_RADIUS_MUL = 0.78;   // census由来(T2/T2N)共通の減光（2026-09-04ユーザー指示で強化）
+// （census由来 T2/T2N の一律減光 T2N_BRIGHT_MUL / T2N_RADIUS_MUL は追補4（D-040）で廃止。
+//   全時代・全tierを同じ描き方にする）
 // 各代表時点で光らせる地点数の上限（スコア上位のみ点灯。これに満たない時代は全部点灯）。
-// 選抜バイアス（Tier1調査済みの209地点だけが常に目立つ）を消すための主要機構。
-// 現代は「その他の微光」を面として敷くため上限を広げる（§9）。
-function topNFor(y){ return y>=1950 ? 520 : 200; }
+// 追補4（D-040）: 全時代で上位100。後の時代ほど数が増えるのは実情どおりなので数は揃えない。
+var TOP_N = 100;
+function topNFor(y){ return TOP_N; }
 var CONF_RANK = {A:4, B:3, C:2, D:1, '':0};
 
 // ============================================================ §3 非線形輝度圧縮
@@ -418,34 +421,41 @@ var ERAS = [
   {k:'contemporary', until:1e9}
 ];
 function eraOf(y){ for(var i=0;i<ERAS.length;i++) if(y<ERAS[i].until) return ERAS[i].k; return 'contemporary'; }
-// 露出（フレーム全体のゲイン）。圧縮カーブは「地点間の比」を作るためのもので、
-// 画面全体の明るさは時代ごとの露出で別に決める＝カメラの露出補正に相当する。
-// これが無いと、最高スコアが95前後しか出ない前近代が一様に暗くなりすぎる。
-// 単純な倍率だと上位が飽和して階層が潰れるので、ソフトニー i' = 1-(1-i)^E を使う。
-// 上限1を超えず、順序も比の向きも保ったまま中間調だけが持ち上がる。
-// era ごとの段ではなく年に対して連続な値にする（再生中に時代境界で明るさが
-// 跳ねると「光が減った」ように見えてしまうため）。
-var EXPO_KNOTS = [
-  [-3000,2.85],[1185,2.75],[1573,2.55],[1700,2.45],[1800,2.35],[1868,2.20],
-  [1900,2.10],[1920,2.00],[1945,1.95],[1970,1.90],[1980,1.35],[2000,1.15],[2026,1.10]
-];
-function exposureAt(y){
-  if(y<=EXPO_KNOTS[0][0]) return EXPO_KNOTS[0][1];
-  for(var i=1;i<EXPO_KNOTS.length;i++){
-    if(y<=EXPO_KNOTS[i][0]){
-      var a=EXPO_KNOTS[i-1], b=EXPO_KNOTS[i];
-      return a[1]+(b[1]-a[1])*(y-a[0])/((b[0]-a[0])||1);
+// ---- 時代の上限 C(y)（追補4 / D-040）。旧・時代別露出 exposureAt（前近代を持ち上げる
+// ソフトニー）は廃止し、これに置き換えた。
+//   C(y) = 0.35 + 0.65 * (P(y)/P_max)^0.35
+//   P(y) = data/era_population.js（tools/build_era_population.py が json から生成）の表を
+//          年について対数線形に補間（範囲外は端の値）。P_max は表の最大値。
+// 強度 I = C(y) × 順位強度。核にも広がりにも同じ係数を掛ける（実装は最終段で強度場ごと
+// C 倍する＝核の値と、トーンマップ後の広がりの値の両方に掛かる）。
+// ?eragain=0 で C=1（見比べ用）。表が読めない場合も C=1。
+var ERA_GAIN_ON = QS.eragain!=='0';
+var ERA_POP = (function(){
+  var t=window.PMAP_ERA_POP, rows=(t && Array.isArray(t.rows)) ? t.rows : [];
+  rows=rows.filter(function(r){ return r && isFinite(+r.y) && isFinite(+r.pop) && +r.pop>0; })
+           .map(function(r){ return {y:+r.y, pop:+r.pop}; })
+           .sort(function(a,b){ return a.y-b.y; });
+  var mx=0; rows.forEach(function(r){ if(r.pop>mx) mx=r.pop; });
+  return {rows:rows, pmax:mx};
+})();
+function eraPopAt(y){
+  var R=ERA_POP.rows; if(!R.length) return null;
+  if(y<=R[0].y) return R[0].pop;
+  if(y>=R[R.length-1].y) return R[R.length-1].pop;
+  for(var i=1;i<R.length;i++){
+    if(y<=R[i].y){
+      var a=R[i-1], b=R[i], f=(y-a.y)/((b.y-a.y)||1);
+      return Math.exp(Math.log(a.pop)+f*(Math.log(b.pop)-Math.log(a.pop)));
     }
   }
-  return EXPO_KNOTS[EXPO_KNOTS.length-1][1];
+  return R[R.length-1].pop;
 }
-function expose(i, E){
-  if(E<=1.0001) return i;
-  return 1-Math.pow(1-Math.max(0,Math.min(1,i)), E);
+function eraGainAt(y){
+  if(!ERA_GAIN_ON) return 1;
+  var P=eraPopAt(y); if(!P || !(ERA_POP.pmax>0)) return 1;
+  return 0.35 + 0.65*Math.pow(Math.min(1, P/ERA_POP.pmax), 0.35);
 }
 var MIN_INTENSITY = 0.04;
-// 面（footprint）を許すのは近代以降（§5）。近世までは点で描く。
-var ERA_FACE = {ancient:false, medieval:false, early_modern:false, modern:true, contemporary:true};
 // 交通網の自動表示（トグルとは別の、常時うっすら見える下地）
 var ERA_NET = {ancient:0, medieval:0, early_modern:0.20, modern:0.42, contemporary:0.18};
 
@@ -537,9 +547,33 @@ TY.forEach(function(y){
     return (CONF_RANK[b.c]||0) - (CONF_RANK[a.c]||0);
   });
   var set = {};
-  rows.slice(0, topNFor(y)).forEach(function(r){ set[r.p]=true; });
+  // 値は順位 r（1..TOPN。truthy なので所属判定にもそのまま使える）
+  rows.slice(0, topNFor(y)).forEach(function(r, i){ set[r.p]=i+1; });
   TOPN_SET[y] = set;
 });
+// ---- 順位強度（追補4 / D-040）。濃さはスコア値ではなく「その代表時点での順位」で決める。
+// 全時代共通の曲線・100位基準の絶対順位（50位はどの時代でも同じ相対強度）:
+//   q = 100 × (1 − (r−1)/99)   … 1位→100、100位→0
+//   強度 = RANK_FLOOR + (1−RANK_FLOOR) × curve(q)   curve は §3 のアンカー曲線
+// RANK_FLOOR は「100位でも点として読める」下限。核輝度は 強度^CORE_GAMMA なので、
+// 100位の核は C=1 で 0.03^0.55≈0.145（ヒート t≈0.29）、C=0.66（1600年）でも t≈0.22。
+var RANK_FLOOR = 0.03;
+function rankQ(r){ return 100*(1-(Math.max(1,Math.min(100,r))-1)/99); }
+function rankStrength(r){ return RANK_FLOOR + (1-RANK_FLOOR)*Math.max(0,Math.min(1,curveFn(rankQ(r)))); }
+// 年 y での地点の順位強度。両端の代表時点の順位強度を地点ごとに線形補間する。
+// 片側の上位集合にしか居ない地点は、居る側の強度をそのまま使う（濃さの出入りは
+// topNMul の連続フェードが担う＝既存の仕組み）。返り値 {s, q}（q は順位スコア＝形の大きさ用）。
+function rankAt(pid, y){
+  var bd=boundingReprYears(y), y0=bd[0], y1=bd[1];
+  var u = (y1>y0) ? Math.max(0,Math.min(1,(y-y0)/(y1-y0))) : 0;
+  var ra=TOPN_SET[y0] && TOPN_SET[y0][pid], rb=TOPN_SET[y1] && TOPN_SET[y1][pid];
+  if(ra && rb){
+    return {s:(1-u)*rankStrength(ra)+u*rankStrength(rb), q:(1-u)*rankQ(ra)+u*rankQ(rb), r0:ra, r1:rb};
+  }
+  if(ra) return {s:rankStrength(ra), q:rankQ(ra), r0:ra, r1:null};
+  if(rb) return {s:rankStrength(rb), q:rankQ(rb), r0:null, r1:rb};
+  return null;
+}
 function boundingReprYears(y){
   if(y<=TY[0]) return [TY[0],TY[0]];
   if(y>=TY[TY.length-1]) return [TY[TY.length-1],TY[TY.length-1]];
@@ -904,15 +938,15 @@ function drawEdges(y){
 //   { intensity, radius, footprint, role, era, ... }
 // intensity（明るさ）と radius（空間的な広がり）は別パラメータ。前近代の見え方を
 // 壊さないよう radius は従来どおり score から、intensity は圧縮カーブから作る。
+// 追補4（D-040）: 全時代で同じ描き方＝1地点＝核（点）＋小さなにじみ。
+// 近代以降だけの metro（楕円ブロブ）と minor（核なしの微光）は廃止した。
+// 種類による形の違い（港＝海岸沿いに扁平、鉱山＝小さく鋭い）は残す。
 var ROLE_STYLE = {
-  metro:{rmul:0.86, coreMul:0.90, softMul:1.10, fp:'blob'},
   city :{rmul:1.00, coreMul:1.00, softMul:1.00, fp:'point'},
   port :{rmul:1.00, coreMul:1.00, softMul:1.00, fp:'coastal'},
   mine :{rmul:0.88, coreMul:1.15, softMul:0.92, fp:'sharp'},
-  hub  :{rmul:1.00, coreMul:1.00, softMul:1.00, fp:'point'},
-  minor:{rmul:1.30, coreMul:0.00, softMul:1.45, fp:'haze'}
+  hub  :{rmul:1.00, coreMul:1.00, softMul:1.00, fp:'point'}
 };
-var BLOB_SPREAD_MAX = 1.65;      // 都市圏の広がりの上限（面が日本列島を覆わないための箍）
 var AGG_SIGMA_KM    = 32;        // 都市圏として束ねる近傍の半径
 
 // ============================================================ 二層光モデル
@@ -931,7 +965,6 @@ var AGG_SIGMA_KM    = 32;        // 都市圏として束ねる近傍の半径
 var SPREAD_PRE   = 0.22;   // 加算バッファへ入れるときのゲイン（8bitバッファの飽和余裕を作る）
 var SPREAD_CAP   = 0.46;   // 広がり層の最大チャンネル値（トーンマップの漸近上限）
 var CORE_GAMMA   = 0.55;   // 核輝度の最終圧縮（単調）。上位の核を必ず SPREAD_CAP より上に置く
-var CORE_EXPO_FRAC = 0.36; // 露出(E)を核に効かせる割合。1.0だと上位同士が潰れて順位が読めない
 var CORE_R_MIN   = 1.5;    // 核の最小半径(px)。1px未満だとアンチエイリアスでピークが出ない
 var CORE_R_K     = 5.2;    // 核半径のスコア係数（上位の核を「点」でなく「核」として読ませる）
 var CORE_HALO    = 2.0;    // 核グラデーションの外周 / 核半径（広げすぎると隣の核を呑む）
@@ -944,35 +977,19 @@ var CORE_COL_LUMA = 0.9868;         // CORE_COL の Rec.709 輝度（QAの期待
 var CORE_COL     = [255,252,238];   // 核の色は種類によらず一定（色＝種類は広がり層が担う）
 var AGG_R_GAIN   = 0.60;   // 凝集度→広がり半径の係数
 var AGG_R_MAX    = 1.40;   // 同 上限（列島を覆わないための箍）
-// 面で描く時代（近代以降）で、中位以下の地点の核を消していく帯。
-// §6「score38級を独立した明るい丸にしない」。ここを残すと、市区町村の数だけ
-// 白い粒が等間隔に並んでハーフトーン（網点）模様になり「面」が壊れる。
-// スコアの単調増加関数を掛けるだけなので、上位の核輝度の順位は変わらない。
-var CORE_FACE_LO = 62, CORE_FACE_HI = 78;
+// （近代以降で中位以下の核を消す CORE_FACE（smoothstep 62–78）は追補4で廃止）
 function smoothstep(a,b,x){ x=(x-a)/((b-a)||1); x=Math.max(0,Math.min(1,x)); return x*x*(3-2*x); }
 
 function baseRadius(s){
   var n=Math.max(0,Math.min(1,s/100));
   return 6+30*Math.pow(n,0.85);              // 旧 lightGeom と同じ（1600年の幾何を保つ）
 }
-// C帯下限（バンドしきい値と同じ30）。現代の点灯下限判定に使う（§VIZ_POLICY追補(b)）。
-var C_BAND_FLOOR = 30;
-// 役割の判定。色（＝場所の種類 k）とは独立に、描き方だけを決める。
+// 役割の判定。色（＝場所の種類 k）とは独立に、描き方（形）だけを決める。
+// 追補4: 時代・tier・スコアによる分岐（metro化・minor化）はしない。閉山中の鉱山は
+// 「鉱山の鋭い光」をやめて普通の点（city）として描く（上位100に残っていれば点灯する）。
 function roleOf(p, s, tier, era, y){
   var kt=p.kt||'';
-  if(p.k==='mine'){
-    // 閉山中は「鉱山の鋭い光」をやめ、小さな街の光(haze)へ遷移する。再開すれば
-    // 再び'mine'に戻る（役割は時代とともに変わる＝§VIZ_POLICY追補(a)。
-    // 色=種類は維持するので橙のまま）。
-    if(isMineClosedAt(p.id, y)) return 'minor';
-    return 'mine';
-  }
-  if(tier==='T2N' && s<58) return 'minor';                 // §6: score38級を独立した丸にしない
-  // 現代（1980以降）で補間値がC帯下限未満の研究地点(T1/T2)は微光化する
-  // （T2Nの58は既存の下限のまま。ここはT1/T2向けの下限＝§VIZ_POLICY追補(b)）。
-  if(y>=1980 && tier!=='T2N' && s<C_BAND_FLOOR) return 'minor';
-  var urbanish=/capital|urban|castle_town|district|municipality/.test(kt);
-  if(ERA_FACE[era] && urbanish && s>=68) return 'metro';   // §5: 面化は近代以降だけ
+  if(p.k==='mine') return isMineClosedAt(p.id, y) ? 'city' : 'mine';
   if(p.k==='port' && !/capital|castle_town/.test(kt)) return 'port';
   if(p.k==='hub') return 'hub';
   return 'city';
@@ -1020,90 +1037,61 @@ function computeAgglomeration(lights){
     A.agg=agg;
   }
 }
-// 面（都市圏ブロブ）: 2-4個の楕円を決定的な配置で重ねる簡易表現。
-function makeBlobs(L){
-  var n = L.score>=88?4 : L.score>=78?3 : 2;
-  var id=L.p.id, axis=Math.PI*hash01(id,'axis'), out=[];
-  for(var i=0;i<n;i++){
-    var t=(n===1?0:i/(n-1)-0.5), j=hash01(id,'j'+i)-0.5;
-    var sp=L.radius*0.78*L.spread;
-    out.push({
-      dx:Math.cos(axis)*t*sp*1.15 + Math.cos(axis+1.5708)*j*sp*0.80,
-      dy:Math.sin(axis)*t*sp*1.15 + Math.sin(axis+1.5708)*j*sp*0.80,
-      r :0.62+0.30*hash01(id,'r'+i),
-      rx:1.05+0.30*hash01(id,'e'+i), ry:0.84,
-      rot:axis,
-      w :(i===0?1.0:0.66+0.24*hash01(id,'w'+i))
-    });
-  }
-  return out;
-}
-
-// 核の中心輝度。**自地点のスコアだけ**の関数（単調増加）。
-// 露出は広がり層ほど強くかけない（E をそのまま使うと 96/93/92 が 0.99/0.97/0.96 に
-// 潰れて「どれが一番明るい核か」が画面から読めなくなるため）。
-// 最後に CORE_GAMMA で圧縮して、上位の核が必ず SPREAD_CAP より上に来るようにする。
-function coreBrightness(s, y){
-  var E  = exposureAt(y);
-  var Ec = 1 + (E-1)*CORE_EXPO_FRAC;
-  var b  = expose(Math.max(0,Math.min(1,curveFn(s))), Ec);
-  return Math.pow(Math.max(0,Math.min(1,b)), CORE_GAMMA);
+// 核の中心輝度。**自地点の順位強度だけ**の関数（単調増加）。時代の上限 C(y) は
+// computeLights で掛ける（広がり層と同じ係数）。CORE_GAMMA で圧縮して、上位の核が
+// 広がり層より上に来るようにする（旧・露出 E の核への部分適用は廃止）。
+// CORE_PEAK: 順位強度は隣り合う順位の差が上位で約4%しかないため、1位を輝度1.0に置くと
+// 2位の核まで白飽和（輝度>0.95・QA (c)）に入る。核の頂上を全時代一律に 0.96 倍して
+// 1位も飽和しきらない位置に置く（順位の比・時代の上限 C とは独立の描画定数）。
+var CORE_PEAK = 0.96;
+function coreBrightness(strength){
+  return CORE_PEAK*Math.pow(Math.max(0,Math.min(1,strength)), CORE_GAMMA);
 }
 
 // 核の半径(px)。輝度ではなく大きさで「核らしさ」を出す係数（種類・役割はここに効く）。
 function coreRadius(L){
-  var cr=CORE_R_MIN + CORE_R_K*Math.pow(Math.max(0,Math.min(100,L.score))/100, 1.35)*L.core;
+  var cr=CORE_R_MIN + CORE_R_K*Math.pow(Math.max(0,Math.min(100,L.rq!==undefined?L.rq:L.score))/100, 1.35)*L.core;
   return L.ins ? cr*0.8 : cr;
 }
 
 function computeLights(y){
-  var era=eraOf(y), expo=exposureAt(y), out=[], i;
+  var era=eraOf(y), C=eraGainAt(y), out=[], i;
   for(i=0;i<PLIST.length;i++){
     var p=PLIST[i], sc=scoreAt(p.id,y);
     if(!sc || sc.v<=0.5) continue;
-    var topMul=topNMul(p.id,y);                  // 選抜: 各時点の上位のみ点灯（境界は連続フェード）
+    var topMul=topNMul(p.id,y);                  // 選抜: 各時点の上位100のみ点灯（境界は連続フェード）
     if(topMul<=0) continue;
+    var rk=rankAt(p.id,y); if(!rk) continue;
     var tier=PLACE_TIER[p.id];
     var q=projFor(p.lon,p.lat);
     if(q[0]===null) continue;            // 現在の画面幅で非表示のインセット（例: mid/narrowの小笠原）
     var role=roleOf(p, sc.v, tier, era, y);
     var RS=ROLE_STYLE[role], T=TYPE[p.k]||TYPE.other;
-    var i0=curveFn(sc.v)*topMul;
-    if(tier==='T2N'||tier==='T2'||isCensusOnlyAt(p.id, state.year)) i0*=T2N_BRIGHT_MUL;
+    var i0=rk.s*topMul;                  // 順位強度（時代の上限 C は最終段で強度場ごと掛ける）
     out.push({
       p:p, x:q[0], y:q[1], ins:q[2], sc:sc,
       score:sc.v, v:sc.v, band:bandOf(sc.v), tier:tier, topMul:topMul,
+      rank0:rk.r0, rank1:rk.r1, rq:rk.q, rs:rk.s, C:C,
       era:era, role:role, footprint:RS.fp,
       intensity0:i0, intensity:i0, agg:0, spread:1, aggR:1, coreV:0,
       color:T.col, soft:T.soft*RS.softMul, core:T.core*RS.coreMul,
-      radius:baseRadius(sc.v)*T.scale*RS.rmul*(tier==='T2N'?T2N_RADIUS_MUL:1)*(q[2]?0.72:1),
-      blobs:null
+      // 形の大きさは順位スコア q から（全時代同じ規則。1600年と同じ baseRadius の式）
+      radius:baseRadius(rk.q)*T.scale*RS.rmul*(q[2]?0.72:1)
     });
   }
-  applyFrameCurve(out);                          // drc / percentile はここで確定
+  applyFrameCurve(out);                          // drc / percentile はここで確定（?debug=1 の比較用）
   // 凝集度は全時代で計算する（＝広がり層の半径にだけ使う。核輝度には触れない）。
   computeAgglomeration(out);
   for(i=0;i<out.length;i++){
     var L=out[i];
     if(CURVE_NAME!=='drc' && CURVE_NAME!=='percentile') L.intensity=L.intensity0;
-    L.intensity=Math.min(1, Math.max(MIN_INTENSITY, expose(L.intensity, expo)));
-    // --- 核: 自地点スコアのみ。role='minor'（一般市区町村・閉山後の鉱山など）は核を持たない
-    L.coreV = (L.role==='minor' || L.core<=0) ? 0
-            : Math.min(1, coreBrightness(L.score, y)) * Math.max(0, Math.min(1, L.topMul));
-    if(ERA_FACE[era]) L.coreV *= smoothstep(CORE_FACE_LO, CORE_FACE_HI, L.score);
-    // census由来(T2/T2N)の減光（b2e6e3d）は核にも掛ける。自地点の属性による係数なので
-    // 「核輝度は近傍に影響されない」は保たれる（レビュー指摘 2026-09-13）。
-    if(L.tier==='T2N'||L.tier==='T2'||isCensusOnlyAt(L.p.id, y)) L.coreV *= T2N_BRIGHT_MUL;
+    L.intensity=Math.min(1, Math.max(MIN_INTENSITY*L.topMul, L.intensity));
+    // --- 核: 自地点の順位強度のみ × 時代の上限 C。全地点が核を持つ
+    L.coreV = C * coreBrightness(L.rs) * Math.max(0, Math.min(1, L.topMul));
     L.coreR = coreRadius(L);
     // --- 広がり: 近傍集積(agg)は半径＝面積にだけ効かせる
     L.aggR = 1 + AGG_R_GAIN*Math.min(AGG_R_MAX, Math.sqrt(Math.max(0, L.agg-L.intensity0)));
-    if(L.role==='metro'){
-      L.spread=1+0.62*Math.min(BLOB_SPREAD_MAX, Math.sqrt(Math.max(0,L.agg-L.intensity0)));
-      L.blobs=makeBlobs(L);
-    }else if(L.role==='minor'){
-      L.intensity*=0.72;                         // 微光として地方の下地に溶かす
-    }
-    L.spreadR = L.radius*(L.role==='metro' ? 1 : L.aggR);   // metroはblob側でspreadを使う
+    L.spreadR = L.radius*L.aggR;
     L.br=L.intensity; L.r=L.radius;               // 既存コード（ラベル/ヒットテスト）との互換
   }
   return out;
@@ -1139,40 +1127,25 @@ function paintGlow(x,y,R,c,a,soft,rx,ry,rot,flat){
   cx.fillStyle=g; cx.beginPath(); cx.arc(0,0,R,0,6.2832); cx.fill();
   cx.restore();
 }
-// §4/§5 時代別Renderer: footprint ごとに「広がり層」を描き分ける（核はここでは描かない）
+// footprint ごとに「広がり層」を描き分ける（核はここでは描かない）。
+// 追補4: 全時代同じ規則（旧・近代以降の面ブロブ／微光ハロー／1.25倍の平たい塗りは廃止）。
 function drawSpreadOf(L){
-  // セルが面を担う年は、metroの楕円ブロブと T2N/minor の微光ハローを止め、
-  // 残す光（T1の点・港・鉱山）の広がりも小さくする（§3.2）。核層には影響しない。
-  if(cellFrame){
-    if(CELL_KILL_FP[L.footprint]) return;
-  }
+  // ?cells=1 でセルが面を担う年は、残す光の広がりを小さくする（§3.2）。核層には影響しない。
   var c=L.color, a=L.intensity*SPREAD_PRE,
       R=L.spreadR*(cellFrame?CELL_T1_SPREAD_MUL:1);
   switch(L.footprint){
-    case 'blob':                                   // 大都市＝面（楕円ブロブの重ね）
-      for(var i=0;i<L.blobs.length;i++){
-        var b=L.blobs[i];
-        paintGlow(L.x+b.dx, L.y+b.dy, L.radius*b.r*1.35, c, a*b.w, L.soft, b.rx, b.ry, b.rot);
-      }
-      break;
     case 'coastal':                                // 港＝海岸線沿いに扁平
       paintGlow(L.x, L.y, R, c, a, L.soft, 1.34, 0.70, coastAngleOf(L.p));
       break;
-    case 'haze':                                   // 一般市区町村＝コアを持たない微光
-      paintGlow(L.x, L.y, R, c, a, L.soft, 1, 1, 0, true);
-      break;
-    case 'sharp':                                  // 鉱山＝小さく鋭い
+    default:                                       // 点・鉱山（鉱山は半径係数で小さく鋭い）
       paintGlow(L.x, L.y, R, c, a, L.soft, 1, 1, 0);
-      break;
-    default:
-      // 面で描く時代の中小都市は、点として尖らせず平たく置く（都市圏の下地に馴染ませる）
-      paintGlow(L.x, L.y, R*(ERA_FACE[L.era]?1.25:1), c, a, L.soft, 1, 1, 0, ERA_FACE[L.era]);
   }
 }
 // ---- 広がり層: オフスクリーンに加算で溜めてからトーンマップして返す
 // 低周波（ぼけた光）なので本体より低い解像度で十分＝getImageDataの走査量を抑える。
 var spreadCv=null, spreadCx=null, SPS=1, SPW=0, SPH=0, spreadKeyLast='';
 var TONE_LUT=null;
+var FRAME_C=1;   // いま描いているフレームの時代上限 C(y)（追補4）。広がり層の出力に掛ける
 function buildToneLUT(){
   // 8bitバッファ値 i → 出力係数。raw = (i/255)/SPREAD_PRE（加算前の本来の強度）を
   // out = CAP*(1-exp(-raw/CAP)) に写す（単調・raw小では恒等・raw大で CAP に漸近）。
@@ -1196,6 +1169,7 @@ function renderSpread(list){
   ensureSpreadCanvas();
   // セル層の有無をここで確定する（drawSpreadOf と toneMapSpread が参照する）
   cellFrame = cellFrameFor(state.year);
+  FRAME_C = eraGainAt(state.year);       // 時代の上限 C（トーンマップ後の広がりに掛ける）
   var g=spreadCx;
   g.save(); g.setTransform(1,0,0,1,0,0);
   g.globalCompositeOperation='source-over';
@@ -1232,15 +1206,7 @@ function renderSpread(list){
   if(DEBUG) console.timeEnd('tonemap');
 }
 function paintLayerOrdered(list, ins){
-  // 微光（面の下地）を先に敷き、意味のある光を上に重ねる（加算なので順序は見た目の話）
-  var i,f;
-  for(i=0;i<list.length;i++) if(list[i].ins===ins && list[i].footprint==='haze') drawSpreadOf(list[i]);
-  for(i=0;i<list.length;i++) if(list[i].ins===ins && list[i].footprint==='blob') drawSpreadOf(list[i]);
-  for(i=0;i<list.length;i++){
-    if(list[i].ins!==ins) continue;
-    f=list[i].footprint;
-    if(f!=='haze'&&f!=='blob') drawSpreadOf(list[i]);
-  }
+  for(var i=0;i<list.length;i++) if(list[i].ins===ins) drawSpreadOf(list[i]);
 }
 // 加算バッファに溜まった「網点（ハーフトーン）」を消すための箱フィルタ。
 // Skia(Chrome)はグラデーションの帯を目立たせないため4x4の組織的ディザを掛ける。
@@ -1284,7 +1250,7 @@ function toneMapSpread(withCells){
       r=d[i]; g2=d[i+1]; b=d[i+2];
       m = r>g2 ? (r>b?r:b) : (g2>b?g2:b);
       if(m===0) continue;
-      f=TONE_LUT[m];                                // 色相を保つため最大チャンネル基準で一律に縮める
+      f=TONE_LUT[m]*FRAME_C;                        // 色相を保つため最大チャンネル基準で一律に縮める（×時代上限C）
       d[i]=r*f; d[i+1]=g2*f; d[i+2]=b*f;
     }
   }else{
@@ -1304,7 +1270,7 @@ function toneMapSpread(withCells){
       tot=rawB+rawC;
       if(tot<=0) continue;                          // m>0 なら rawB>0 なので、ここは両方0の画素だけ
       out=toneOf(tot);
-      k=out*255/tot;
+      k=out*255/tot*FRAME_C;
       // チャンネル比は raw の比で混ぜる（既存層は自分の色、セルは CELL_COL）
       wr=rawC*cr; wg=rawC*cg; wb=rawC*cb;
       if(m>0){ wr+=rawB*(r/m); wg+=rawB*(g2/m); wb+=rawB*(b/m); }
@@ -1334,7 +1300,9 @@ var CELL_DIR = (function(){
   if(!/^[A-Za-z0-9_\-.\/]+$/.test(d) || d.indexOf('..')>=0 || d.charAt(0)==='/') return 'data/cells/';
   return d.replace(/\/+$/,'')+'/';
 })();
-var CELLS_OFF = QS.cells==='0';          // ?cells=0 で強制的に現行Renderer（比較用）
+// 追補4（D-040）: 光のセルは**既定OFF**（読み込まない・描かない）。?cells=1 のときだけ従来どおり重ねる。
+// データ data/cells/ は残す（将来の拡大表示用）。
+var CELLS_OFF = QS.cells!=='1';
 
 var CELL_POP_K    = 60;      // 対数圧縮の肩（人口がこの程度までは効きが大きい）
 var CELL_POP_REF  = 20000;   // この人口（1km²）で1セルの上限に達する
@@ -1345,7 +1313,6 @@ var CELL_V_MAX    = 0.030;   // 1セルあたりの輝度上限（基準画素�
 var CELL_REF_KM2_PER_PX = 21.7;
 var CELL_COL      = [255,236,212];   // セルの色（都市色の低彩度版。セルは種類を持たない）
 // セルが面を担う年は、点光源側の広がりを抑える（§3.2「metroブロブは廃止」）。
-var CELL_KILL_FP  = {blob:1, haze:1}; // metroの楕円ブロブ／T2N・minorの微光ハローを止める
 var CELL_T1_SPREAD_MUL = 0.55;        // 残す光（T1の点・港・鉱山）の広がり半径の倍率
 var CELL_TONE_MAX = 4.0;              // トーンマップLUTの入力上限（これ以上はCAPに漸近）
 // セル層に4px箱フィルタを掛けるか。**既定OFF**（2026-09-14 PM裁定）。
@@ -1419,7 +1386,7 @@ function cellFileList(){
   });
 }
 function loadCells(){
-  if(CELLS_OFF){ cellNote='?cells=0（セル層を無効化）'; return; }
+  if(CELLS_OFF){ cellNote='セル層は既定OFF（?cells=1 で表示）'; return; }
   var idxUrl=CELL_DIR+'index.json';
   if(QA){
     // セル読み込みで何が起きても初期化（resize→初回描画）を止めない。失敗＝現行Rendererへフォールバック
@@ -1747,10 +1714,16 @@ function toneMapSpreadHeat(withCells){
     if(tot<=0){ heatS[p]=0; continue; }
     // 出力 = CAP*(1-exp(-raw/CAP))（夜景の TONE_LUT / toneOf と同じ式）× 色の輝度比
     lum = (rawC*lumC + (m>0 ? rawB*(0.2126*r+0.7152*g+0.0722*b)/m : 0))/tot;
-    heatS[p] = toneOf(tot)*lum;
+    heatS[p] = toneOf(tot)*lum*FRAME_C;            // ×時代上限 C（核側は coreV に掛けてある）
   }
 }
 // ---- 強度場 → ヒート画像（CSS画素の解像度。DPR>1 では drawImage で拡大）
+// 夜景の画面は max(地色+広がり, 核)。ここから地色を除いた「光だけ」の強度は
+// max(広がり, 核−地色)。核の裾のうち夜景で地色に埋もれて見えない部分（核<地色+広がり）を
+// ヒートでも出さないために、核側から陸の地色の輝度（#0b0f17＝0.0578）を引く。
+// これが無いと核の裾だけ「夜景より濃い」画素ができ、上限 C の小さい時代（地点が少なく
+// 画素の大半が核の裾になる）で夜景との単調性 (j4) が崩れる（追補4で顕在化）。
+var NIGHT_LAND_LUMA = 0.0578;
 var heatCv=null, heatCx=null, coreCv=null, coreCx=null, heatImg=null, heatIdxKey='';
 var hx0=null, hx1=null, hfx=null, hy0=null, hy1=null, hfy=null;
 function renderHeat(list){
@@ -1787,7 +1760,7 @@ function renderHeat(list){
       a=S[r0+hx0[x]]+(S[r0+hx1[x]]-S[r0+hx0[x]])*hfx[x];
       b=S[r1+hx0[x]]+(S[r1+hx1[x]]-S[r1+hx0[x]])*hfx[x];
       s=a+(b-a)*fy;
-      c=(0.2126*cd[q]+0.7152*cd[q+1]+0.0722*cd[q+2])*(1/255);
+      c=(0.2126*cd[q]+0.7152*cd[q+1]+0.0722*cd[q+2])*(1/255)-NIGHT_LAND_LUMA;
       I= s>c ? s : c;
       li=(I>=1 ? N : (I<=0 ? 0 : (I*N+0.5)|0))<<2;
       o[q]=L[li]; o[q+1]=L[li+1]; o[q+2]=L[li+2]; o[q+3]=L[li+3];
@@ -1987,7 +1960,9 @@ function writeQADump(){
   var insIdx=function(s){ return s? insets.indexOf(s) : -1; };
   var o={
     year:state.year, era:eraOf(state.year), jp_era:jpEraOf(Math.round(state.year)),
-    w:W, h:H, dpr:DPR, bp:BP, KC:KC, curve:CURVE_NAME, exposure:exposureAt(state.year),
+    w:W, h:H, dpr:DPR, bp:BP, KC:KC, curve:CURVE_NAME,
+    model:'top100', topN:topNFor(state.year), rank_floor:RANK_FLOOR,
+    era_gain:{on:ERA_GAIN_ON, C:eraGainAt(state.year), pop:eraPopAt(state.year)},
     spread:{pre:SPREAD_PRE, cap:SPREAD_CAP, scale:SPS},
     // セル層（docs/CELLS_FORMAT_v0.md §5）。count=0 はセルを使っていない年＝現行Renderer。
     // mesh_year は「描画に使ったメッシュ年」で、display_year（描画対象年）とは別物。
@@ -2007,7 +1982,7 @@ function writeQADump(){
     style:STYLE, heat_off:HEAT_OFF,
     heat:{gamma:HEAT_GAMMA, floor:HEAT_FLOOR, stops:HEAT_STOPS, res:'css_px',
           pref_lines:(window.PMAP_PREF_LINES && window.PMAP_PREF_LINES.length)||0},
-    core:{gamma:CORE_GAMMA, expo_frac:CORE_EXPO_FRAC, r_min:CORE_R_MIN, r_k:CORE_R_K, halo:CORE_HALO},
+    core:{gamma:CORE_GAMMA, peak:CORE_PEAK, r_min:CORE_R_MIN, r_k:CORE_R_K, halo:CORE_HALO},
     view:{sc:view.sc, ox:view.ox, oy:view.oy},
     insets:insets.map(function(s){ return {label:s.label, box:s.box, sc:s.sc, ox:s.ox, oy:s.oy,
       geo:{lon0:s.geo.lon0, lon1:s.geo.lon1, lat0:s.geo.lat0, lat1:s.geo.lat1}}; }),
@@ -2016,7 +1991,7 @@ function writeQADump(){
         score:L.score, k:L.p.k, tier:L.tier||'', role:L.role, fp:L.footprint,
         coreV:L.coreV, coreR:L.coreR, coreHalo:CORE_HALO,
         intensity:L.intensity, radius:L.radius, spreadR:L.spreadR,
-        agg:L.agg, aggR:L.aggR, topMul:L.topMul};
+        agg:L.agg, aggR:L.aggR, topMul:L.topMul, rank0:L.rank0, rank1:L.rank1, rq:L.rq, rs:L.rs};
     })
   };
   el.textContent=JSON.stringify(o);
@@ -2034,9 +2009,6 @@ function nearestTP(y){
   return {tp:b, exact:bd<0.5};
 }
 // §12: 全国画面のHUDは「1600年 / 江戸時代」だけ。技術情報はAboutモーダルへ。
-var ERA_LABEL={ancient:'点で描く時代（古代）',medieval:'点で描く時代（中世）',
-  early_modern:'点＋交通網で描く時代（近世）',modern:'点＋線＋主要都市の面（近代）',
-  contemporary:'面で描く時代（現代）'};
 function updateHUD(){
   document.getElementById('hudYear').textContent=fmtYear(state.year);
   document.getElementById('hudEra').textContent=jpEraOf(Math.round(state.year));
@@ -2053,11 +2025,13 @@ function updateAboutTech(){
     (nt.exact? '代表時点 '+nt.tp.t+' の<b>実測</b>'
              : '代表時点 '+nt.tp.t+' に最も近い年の<b>補間</b>')+'<br>'+
     '点灯 '+lightCache.length+' 地点 / DB全'+PLIST.length+' 地点（この時点の点灯上限 '+topNFor(nt.tp.y)+'）<br>'+
-    'Renderer: '+ERA_LABEL[era]+'<br>'+
+    '描き方: 全時代共通（1地点＝核＋小さなにじみ）。濃さ＝その時代の中での順位 × 時代の上限 C<br>'+
     '内訳: '+Object.keys(roles).map(function(k){return k+' '+roles[k];}).join(' / ')+'<br>'+
-    '輝度カーブ: <b>'+CURVE_NAME+'</b>（既定 anchor＝100→1.00 / 80→0.45 / 60→0.18 / 40→0.06 / 20→0.015）'+
-    '　露出 E='+exposureAt(state.year).toFixed(2)+'（ソフトニー・年に対して連続）<br>'+
-    '合成: <b>核＝max（非加算・ピークは自地点スコアのみ）／広がり＝加算のあとトーンマップで上限'+
+    '順位→強度: <b>'+CURVE_NAME+'</b> を順位スコア q=100×(1−(r−1)/99) に適用（anchor＝100→1.00 / 80→0.45 / 60→0.18 / 40→0.06 / 20→0.015・下限 '+RANK_FLOOR+'）<br>'+
+    '時代の上限 C='+eraGainAt(state.year).toFixed(3)+(ERA_GAIN_ON
+      ? '（総人口 '+Math.round((eraPopAt(state.year)||0)/10000).toLocaleString()+'万人の推計に連動。C=0.35+0.65×(P/P_max)^0.35）'
+      : '（?eragain=0 により上限なし）')+'<br>'+
+    '合成: <b>核＝max（非加算・ピークは自地点の順位強度のみ）／広がり＝加算のあとトーンマップで上限'+
     SPREAD_CAP.toFixed(2)+'に圧縮</b>（近傍'+AGG_SIGMA_KM+'kmの凝集度は広がりの半径にだけ効く）<br>'+
     '広がりの元データ: '+(cellFrame
       ? '<b>光のセル</b>（1km²メッシュ '+(+cellFrame.count||0).toLocaleString()+' セルの加算 / メッシュ年 '+
@@ -2554,13 +2528,15 @@ function applyHeatTexts(){
   $('legend').innerHTML='<div class="hbar" style="background-image:linear-gradient(90deg,'+stops.join(',')+')"></div>'+
     '<div class="hends"><span>まばら</span><span>集まっている</span></div>'+
     (prefLines() ? '<div class="hsub">県境は現在のもの</div>' : '');
-  var DISC='各時代の中での相対的な集まり具合（繁栄度）を示す図で、実測の人口密度や混雑ではありません。';
-  $('note').innerHTML='<b>'+DISC+'</b>';
+  // 追補4-5（D-040）の文言。「実測の人口密度や混雑ではありません」は残す。
+  var DISC='各時代の上位100か所を、その時代の中での順位で色分けしています。色の濃さの上限は当時の日本の総人口に連動します（推計を含む）。';
+  var NOT_REAL='実測の人口密度や混雑ではありません。';
+  $('note').innerHTML='<b>'+DISC+NOT_REAL+'</b>';
   var box=document.querySelector('#modal .box');
   box.querySelector('h3').textContent='この地図について';
-  box.querySelector('.warn').textContent=DISC+'当時の人口・交易・交通・産業・政治的重要性などから推定しています。';
+  box.querySelector('.warn').textContent=DISC+NOT_REAL+'順位のもとになるスコアは、当時の人口・交易・交通・産業・政治的重要性などから推定しています。';
   var ps=box.querySelectorAll(':scope > p');
-  if(ps[1]) ps[1].textContent='色の濃さは、その時代の中での集まり具合（黄→橙→赤の順に集まっている）。各時代の上位の地点だけを描いています。場所の種類（都市・城下町／港／鉱山／宿場など）は、地点をクリックすると表示されます。県境は位置の手がかりとして現在のものを描いています。';
+  if(ps[1]) ps[1].textContent='色の濃さは、その時代の中での順位（黄→橙→赤の順に上位）。各時代の上位100か所だけを、どの時代も同じ描き方（1か所＝点と小さなにじみ）で描いています。場所の種類（都市・城下町／港／鉱山／宿場など）は、地点をクリックすると表示されます。県境は位置の手がかりとして現在のものを描いています。';
   var det=box.querySelector('details');
   if(det){
     var p0=document.createElement('p'); p0.style.marginTop='10px';
