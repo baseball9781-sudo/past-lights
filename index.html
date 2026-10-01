@@ -5,13 +5,54 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Past Lights — 日本歴史繁栄マップ</title>
 <style>
+  /* 配色は変数で持つ。既定＝ライト（混雑レーダー型・docs/VIZ_POLICY_v1.md 追補3）。
+     ?style=night のときだけ body.night で従来のダーク配色に戻す（値は従来のリテラルそのまま）。 */
   :root{
+    --sea:#DEE6EC; --land:#F7F6F2; --coast:#B0BAC4;
+    --bg:#DEE6EC; --ink:#1f2933; --dim:#5f6b78; --line:#cdd5dc; --panel:rgba(255,255,255,.97);
+    --accent:#b23a10; --h1:#1f2933;
+    --btnBg:rgba(255,255,255,.90); --btnHoverBd:#97a3af; --btnHoverBg:#ffffff;
+    --btnOnBd:#d9541e; --btnOnInk:#a5320c; --btnOnBg:#fff1e8;
+    --hudYr:#1f2933; --hudEra:#4b5563; --hudShadow:0 0 3px #fff,0 0 8px rgba(255,255,255,.9);
+    --note:#5f6b78; --noteB:#3b4450;
+    --fadeE:rgba(31,41,51,.20); --fadeShadow:none; --fadeY:rgba(31,41,51,.40);
+    --timebar:linear-gradient(#f6f8fa,#e9edf1);
+    --knob:#c2410c; --knobGlow:rgba(194,65,12,.35);
+    --h3:#4b5563; --now:#7c2d12; --why:#2f3a46;
+    --wdt:#6b7685; --wdtHover:#2f3a46; --wdBorder:#d5dbe1;
+    --evY:#4b5563; --evUp:#15803d; --evDn:#b91c1c; --evNu:#8a94a0; --evX:#2f3a46; --evBorder:#e3e7eb;
+    --evNear:rgba(255,196,70,.16);
+    --tagInk:#4b5563; --sparkBg:#fafbfc; --sparkNote:#6b7685;
+    --modalOverlay:rgba(40,52,64,.45); --modalBg:#ffffff; --modalBd:#cdd5dc; --modalP:#2f3a46;
+    --warnBg:rgba(255,196,70,.14); --warnBd:#d9541e; --warnInk:#5b2a0c;
+    --small:#6b7685; --techBd:#d5dbe1; --tech:#5f6b78; --techB:#2f3a46;
+    --legend:#4b5563; --hoverBg:rgba(255,255,255,.96); --summary:#3d5a80;
+    --sInterp:#b45309; --sObs:#15803d; --sStep:#9a5b13; --sFade:#6b7685; --mute:#6b7685;
+  }
+  body.night{
     --sea:#04060c; --land:#0b0f17; --coast:#1b2434;
-    --ink:#dfe6f2; --dim:#8792a6; --line:#222b3c; --panel:rgba(9,12,20,.94);
-    --accent:#ffd9a0;
+    --bg:#04060c; --ink:#dfe6f2; --dim:#8792a6; --line:#222b3c; --panel:rgba(9,12,20,.94);
+    --accent:#ffd9a0; --h1:#e8eefb;
+    --btnBg:rgba(18,24,36,.85); --btnHoverBd:#3d4c68; --btnHoverBg:rgba(28,36,54,.9);
+    --btnOnBd:#6b8dc0; --btnOnInk:#cfe2ff; --btnOnBg:rgba(30,48,74,.9);
+    --hudYr:#fff2dc; --hudEra:#b9c6dc; --hudShadow:none;
+    --note:#67728a; --noteB:#8794aa;
+    --fadeE:rgba(255,238,208,.30); --fadeShadow:0 0 40px rgba(255,214,150,.18); --fadeY:rgba(210,222,242,.30);
+    --timebar:linear-gradient(#070a11,#04060c);
+    --knob:#ffe9c4; --knobGlow:rgba(255,214,150,.55);
+    --h3:#9fb0cc; --now:#ffe3bb; --why:#c3ccdb;
+    --wdt:#7d879a; --wdtHover:#aeb8c9; --wdBorder:#1e2637;
+    --evY:#9fb0cc; --evUp:#8fdcb0; --evDn:#e08a8a; --evNu:#7c879b; --evX:#aeb8c9; --evBorder:#1e2637;
+    --evNear:rgba(255,214,150,.06);
+    --tagInk:#8ea0bd; --sparkBg:#070a11; --sparkNote:#6f7b90;
+    --modalOverlay:rgba(2,4,8,.82); --modalBg:#0a0e17; --modalBd:#26314a; --modalP:#c3ccdb;
+    --warnBg:rgba(255,190,110,.07); --warnBd:#d8a35e; --warnInk:#f0d7b0;
+    --small:#7d879a; --techBd:#26314a; --tech:#8894aa; --techB:#aeb8c9;
+    --legend:#8792a6; --hoverBg:rgba(8,11,18,.92); --summary:#8fa2c0;
+    --sInterp:#f0b96b; --sObs:#9fd8a8; --sStep:#e0b98a; --sFade:#8792a6; --mute:#7d879a;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;height:100%;background:#04060c;color:var(--ink);
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
     font-family:"Hiragino Sans","Yu Gothic",-apple-system,system-ui,sans-serif;
     -webkit-font-smoothing:antialiased;overflow:hidden}
   #app{position:fixed;inset:0;display:flex;flex-direction:column}
@@ -20,34 +61,34 @@
 
   /* ---- 見出し ---- */
   #title{position:absolute;left:20px;top:16px;pointer-events:none;z-index:3}
-  #title h1{margin:0;font-size:15px;letter-spacing:.18em;font-weight:600;color:#e8eefb}
+  #title h1{margin:0;font-size:15px;letter-spacing:.18em;font-weight:600;color:var(--h1)}
   #title p{margin:4px 0 0;font-size:11px;color:var(--dim);letter-spacing:.06em}
 
   /* ---- 右上ボタン ---- */
   #tools{position:absolute;right:16px;top:14px;z-index:4;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-  .btn{background:rgba(18,24,36,.85);border:1px solid var(--line);color:var(--ink);
+  .btn{background:var(--btnBg);border:1px solid var(--line);color:var(--ink);
     font-size:11px;padding:6px 11px;border-radius:4px;cursor:pointer;letter-spacing:.05em;
     font-family:inherit}
-  .btn:hover{border-color:#3d4c68;background:rgba(28,36,54,.9)}
-  .btn.on{border-color:#6b8dc0;color:#cfe2ff;background:rgba(30,48,74,.9)}
+  .btn:hover{border-color:var(--btnHoverBd);background:var(--btnHoverBg)}
+  .btn.on{border-color:var(--btnOnBd);color:var(--btnOnInk);background:var(--btnOnBg)}
 
   /* ---- 現在年 HUD（§12: 年と時代名だけ） ---- */
-  #hud{position:absolute;left:20px;bottom:16px;z-index:3;pointer-events:none}
-  #hud .yr{font-size:30px;font-weight:300;letter-spacing:.04em;line-height:1.1;color:#fff2dc}
-  #hud .era{font-size:13px;color:#b9c6dc;margin-top:2px;letter-spacing:.14em}
+  #hud{position:absolute;left:20px;bottom:16px;z-index:3;pointer-events:none;text-shadow:var(--hudShadow)}
+  #hud .yr{font-size:30px;font-weight:300;letter-spacing:.04em;line-height:1.1;color:var(--hudYr)}
+  #hud .era{font-size:13px;color:var(--hudEra);margin-top:2px;letter-spacing:.14em}
 
   /* ---- 免責（§14: 右下に小さく維持） ---- */
   #note{position:absolute;right:16px;bottom:14px;z-index:3;max-width:300px;
-    font-size:10px;line-height:1.6;color:#67728a;text-align:right}
-  #note b{color:#8794aa;font-weight:600}
+    font-size:10px;line-height:1.6;color:var(--note);text-align:right}
+  #note b{color:var(--noteB);font-weight:600}
 
   /* ---- 再生中の時代名フェード（§10） ---- */
   #eraFade{position:absolute;left:0;right:0;top:38%;z-index:4;text-align:center;
     pointer-events:none;opacity:0;transition:opacity .9s ease}
   #eraFade.show{opacity:1}
-  #eraFade .e{font-size:58px;font-weight:200;letter-spacing:.32em;color:rgba(255,238,208,.30);
-    text-shadow:0 0 40px rgba(255,214,150,.18)}
-  #eraFade .y{font-size:13px;letter-spacing:.30em;color:rgba(210,222,242,.30);margin-top:6px}
+  #eraFade .e{font-size:58px;font-weight:200;letter-spacing:.32em;color:var(--fadeE);
+    text-shadow:var(--fadeShadow)}
+  #eraFade .y{font-size:13px;letter-spacing:.30em;color:var(--fadeY);margin-top:6px}
 
   /* ---- 再生中はHUDを最小化（§10） ---- */
   body.playing #legend,body.playing #note,body.playing #title p,
@@ -56,14 +97,14 @@
   #legend,#note,#title p,#btnEdges,#btnLabel,#btnInfo{transition:opacity .5s ease}
 
   /* ---- スライダー ---- */
-  #timebar{height:92px;flex:none;background:linear-gradient(#070a11,#04060c);
+  #timebar{height:92px;flex:none;background:var(--timebar);
     border-top:1px solid var(--line);position:relative;padding:0 24px}
   #trackWrap{position:relative;height:92px}
   canvas#track{position:absolute;left:0;top:0;width:100%;height:100%;display:block;cursor:ew-resize}
-  #knob{position:absolute;top:26px;width:2px;height:30px;background:#ffe9c4;
-    box-shadow:0 0 10px 2px rgba(255,214,150,.55);pointer-events:none}
+  #knob{position:absolute;top:26px;width:2px;height:30px;background:var(--knob);
+    box-shadow:0 0 10px 2px var(--knobGlow);pointer-events:none}
   #knob::after{content:"";position:absolute;left:-4px;top:-6px;width:10px;height:10px;
-    border-radius:50%;background:#ffe9c4;box-shadow:0 0 12px 3px rgba(255,214,150,.6)}
+    border-radius:50%;background:var(--knob);box-shadow:0 0 12px 3px var(--knobGlow)}
 
   /* ---- Layer2 パネル ---- */
   #panel{position:absolute;right:0;top:0;bottom:0;width:370px;background:var(--panel);
@@ -73,46 +114,51 @@
   #panel h2{margin:0 0 2px;font-size:19px;font-weight:600}
   #panel .meta{font-size:11px;color:var(--dim);line-height:1.7}
   #panel .sec{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
-  #panel .sec h3{margin:0 0 8px;font-size:11px;letter-spacing:.14em;color:#9fb0cc;font-weight:600}
-  #panel .now{font-size:13px;color:#ffe3bb}
-  #panel .why{font-size:12px;line-height:1.85;color:#c3ccdb;white-space:pre-wrap}
-  #panel .whyDetailToggle{font-size:10.5px;color:#7d879a;cursor:pointer;margin-top:8px;
+  #panel .sec h3{margin:0 0 8px;font-size:11px;letter-spacing:.14em;color:var(--h3);font-weight:600}
+  #panel .now{font-size:13px;color:var(--now)}
+  #panel .why{font-size:12px;line-height:1.85;color:var(--why);white-space:pre-wrap}
+  #panel .whyDetailToggle{font-size:10.5px;color:var(--wdt);cursor:pointer;margin-top:8px;
     text-decoration:underline dotted;user-select:none}
-  #panel .whyDetailToggle:hover{color:#aeb8c9}
-  #panel .whyDetail{display:none;font-size:10.5px;color:#7d879a;line-height:1.7;
-    margin-top:6px;white-space:pre-wrap;border-top:1px dotted #1e2637;padding-top:8px}
+  #panel .whyDetailToggle:hover{color:var(--wdtHover)}
+  #panel .whyDetail{display:none;font-size:10.5px;color:var(--wdt);line-height:1.7;
+    margin-top:6px;white-space:pre-wrap;border-top:1px dotted var(--wdBorder);padding-top:8px}
   #panel .whyDetail.open{display:block}
   #closeP{position:absolute;right:10px;top:8px;background:none;border:0;color:var(--dim);
     font-size:20px;cursor:pointer;line-height:1}
-  .ev{font-size:11.5px;line-height:1.6;padding:6px 0;border-bottom:1px dotted #1e2637;display:flex;gap:8px}
-  .ev .y{color:#9fb0cc;flex:none;width:62px;font-variant-numeric:tabular-nums}
+  .ev{font-size:11.5px;line-height:1.6;padding:6px 0;border-bottom:1px dotted var(--evBorder);display:flex;gap:8px}
+  .ev .y{color:var(--evY);flex:none;width:62px;font-variant-numeric:tabular-nums}
   .ev .d{flex:none;width:12px;text-align:center}
-  .ev .up{color:#8fdcb0}.ev .dn{color:#e08a8a}.ev .nu{color:#7c879b}
-  .ev .x{color:#aeb8c9}
+  .ev .up{color:var(--evUp)}.ev .dn{color:var(--evDn)}.ev .nu{color:var(--evNu)}
+  .ev .x{color:var(--evX)}
   .tag{display:inline-block;font-size:10px;border:1px solid var(--line);border-radius:3px;
-    padding:1px 5px;margin-right:5px;color:#8ea0bd}
-  canvas#spark{width:100%;height:74px;display:block;background:#070a11;border:1px solid var(--line)}
-  #sparkNote{font-size:10px;color:#6f7b90;margin-top:5px;line-height:1.6}
+    padding:1px 5px;margin-right:5px;color:var(--tagInk)}
+  canvas#spark{width:100%;height:74px;display:block;background:var(--sparkBg);border:1px solid var(--line)}
+  #sparkNote{font-size:10px;color:var(--sparkNote);margin-top:5px;line-height:1.6}
 
   /* ---- モーダル ---- */
-  #modal{position:fixed;inset:0;background:rgba(2,4,8,.82);z-index:20;display:none;
+  #modal{position:fixed;inset:0;background:var(--modalOverlay);z-index:20;display:none;
     align-items:center;justify-content:center;padding:24px}
   #modal.open{display:flex}
-  #modal .box{max-width:600px;background:#0a0e17;border:1px solid #26314a;border-radius:6px;
-    padding:26px 28px;font-size:13px;line-height:1.95}
+  #modal .box{max-width:600px;background:var(--modalBg);border:1px solid var(--modalBd);border-radius:6px;
+    padding:26px 28px;font-size:13px;line-height:1.95;max-height:calc(100vh - 48px);overflow-y:auto}
   #modal h3{margin:0 0 14px;font-size:15px;letter-spacing:.1em}
-  #modal p{margin:0 0 12px;color:#c3ccdb}
-  #modal .warn{background:rgba(255,190,110,.07);border-left:2px solid #d8a35e;padding:10px 14px;
-    color:#f0d7b0}
-  #modal small{color:#7d879a;font-size:11px;line-height:1.8;display:block}
-  #modal .tech{border-top:1px dotted #26314a;margin:14px 0 12px;padding-top:10px;
-    font-size:11px;line-height:1.85;color:#8894aa;font-variant-numeric:tabular-nums}
-  #modal .tech b{color:#aeb8c9;font-weight:600}
-  #legend{position:absolute;left:20px;bottom:78px;z-index:3;font-size:10.5px;color:#8792a6;
+  #modal p{margin:0 0 12px;color:var(--modalP)}
+  #modal .warn{background:var(--warnBg);border-left:2px solid var(--warnBd);padding:10px 14px;
+    color:var(--warnInk)}
+  #modal summary{cursor:pointer;color:var(--summary);font-size:12px}
+  #modal small{color:var(--small);font-size:11px;line-height:1.8;display:block}
+  #modal .tech{border-top:1px dotted var(--techBd);margin:14px 0 12px;padding-top:10px;
+    font-size:11px;line-height:1.85;color:var(--tech);font-variant-numeric:tabular-nums}
+  #modal .tech b{color:var(--techB);font-weight:600}
+  #legend{position:absolute;left:20px;bottom:78px;z-index:3;font-size:10.5px;color:var(--legend);
     line-height:1.9;pointer-events:none}
   #legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;
     vertical-align:middle}
-  #hover{position:absolute;z-index:5;pointer-events:none;background:rgba(8,11,18,.92);
+  /* ヒートの凡例: 色帯1本（追補3）。帯の色は描画と同じランプ（JSが生成）を陸の地色の上に重ねたもの */
+  #legend .hbar{width:200px;height:10px;border:1px solid #c9d0d6;border-radius:2px;background-color:var(--land)}
+  #legend .hends{display:flex;justify-content:space-between;width:200px;line-height:1.5;margin-top:2px}
+  #legend .hsub{font-size:9.5px;color:var(--mute);line-height:1.5}
+  #hover{position:absolute;z-index:5;pointer-events:none;background:var(--hoverBg);
     border:1px solid var(--line);border-radius:3px;padding:4px 8px;font-size:11px;display:none}
 
   /* ---- レスポンシブ（docs/VIZ_POLICY_v1.md 追補2026-09-04）----
@@ -136,6 +182,7 @@
     #tools{right:10px;top:10px;gap:5px}
     .btn{padding:4px 7px;font-size:9.5px}
     #legend{left:12px;bottom:66px;font-size:9px;line-height:1.55}
+    #legend .hbar,#legend .hends{width:140px}
     #hud{left:12px;bottom:14px}
     #hud .yr{font-size:23px}
     #hud .era{font-size:10.5px}
@@ -208,7 +255,7 @@
   <h3>この光について</h3>
   <p class="warn">この光は実際の夜間照明ではありません。当時の人口・交易・交通・産業・政治的重要性などから推定した「人間活動の明るさ」です。</p>
   <p>色は場所の種類（都市・城下町／港／鉱山／宿場・結節点）、明るさはその時代の中での重要度。各時代の上位の地点だけが光ります。</p>
-  <details style="margin:0 0 12px"><summary style="cursor:pointer;color:#8fa2c0;font-size:12px">仕組みの詳しい説明</summary>
+  <details style="margin:0 0 12px"><summary>仕組みの詳しい説明</summary>
   <p style="margin-top:10px">各代表時点（BC3000〜2026の32時点）で、地点ごとに相対スコア（0-100）を出典つきの調査にもとづき付与しています。明るさはスコアを強く非線形に圧縮して割り当てているため、スコアが半分でも「半分の明るさ」にはなりません。代表時点のあいだの年は前後から補間し、出来事のある年には段差をつけています。</p>
   <p>光は「中心（核）」と「広がり」の二層に分けて描いています。核の明るさはその地点自身のスコアだけで決まり、近くに別の地点があっても足し合わさりません。周辺に都市が集まっていることは、明るさではなく光の<b>広さ</b>として表れます。たとえば1700年は、最も強い核は江戸、最も広い集積は上方（京都・大坂・堺・大津）になります。</p>
   <p>時代ごとに描き方を変えています: 古代・中世は点、近世は点と交通路、近代以降は主要都市を面（都市圏の広がり）として描きます。南西諸島は実際の距離より近づけて表示しています（データは実座標のまま）。狭い画面では小笠原諸島の表示を省略します。</p>
@@ -222,6 +269,8 @@
 
 <script src="coastline.js?v=14"></script>
 <script src="data/bundle.js?v=14"></script>
+<!-- 県境（現行の都道府県界・Natural Earth PD）。無くても描画は落ちない（PMAP_PREF_LINES 未定義なら描かない） -->
+<script src="prefectures.js?v=1"></script>
 <script>
 (function(){
 "use strict";
@@ -278,6 +327,15 @@ if(QA){
     'width:'+QW+'px;height:'+QH+'px}';
   document.head.appendChild(qst);
 }
+
+// ---- 表現スタイル（docs/VIZ_POLICY_v1.md 追補3 / D-036）
+//   既定 = 'heat'（混雑レーダー型）: 明るい下地の上に、強度場を黄→橙→赤の半透明で重ねる。
+//   ?style=night = 従来の夜景描画。draw() の夜景経路は一切変えていない＝基準PNGとバイト一致
+//   （回帰検査に使う）。?heat=0 は下地だけ（ヒートを重ねない。QAの比較用）。
+var STYLE = QS.style==='night' ? 'night' : 'heat';
+var HEAT = STYLE==='heat';
+var HEAT_OFF = HEAT && QS.heat==='0';
+if(!HEAT) document.body.classList.add('night');
 
 // 色＝場所の種類（§13: 彩度はこれ以上上げない）。scale/core/softは形の性格。
 var TYPE = {
@@ -1163,7 +1221,8 @@ function renderSpread(list){
     if(DEBUG) console.timeEnd('cells');
   }
   if(DEBUG) console.time('tonemap');
-  toneMapSpread(!!cellFrame);
+  if(HEAT) toneMapSpreadHeat(!!cellFrame);   // ヒート: 同じ式を浮動小数で（夜景の経路は不変）
+  else toneMapSpread(!!cellFrame);
   if(DEBUG) console.timeEnd('tonemap');
 }
 function paintLayerOrdered(list, ins){
@@ -1580,6 +1639,7 @@ function drawSelRing(list){
 }
 
 function draw(){
+  if(HEAT){ drawHeat(); return; }     // 既定＝混雑レーダー型。以下は ?style=night（従来どおり）
   cx.setTransform(DPR,0,0,DPR,0,0);
   cx.fillStyle='#04060c'; cx.fillRect(0,0,W,H);
   drawLand();
@@ -1600,6 +1660,303 @@ function draw(){
   drawLabels(lightCache);
   drawSelRing(lightCache);
   if(!QA){ updateHUD(); drawTrack(); if(state.sel) renderPanel(); }
+  if(QA_DUMP) writeQADump();
+}
+
+// ============================================================ 混雑レーダー型（表現層）
+// docs/VIZ_POLICY_v1.md 追補3（D-036）。二段構成:
+//   強度場 I（真実）… 既存の夜景パイプラインが作る「光だけ」の輝度（地図の地色・交通路を除く）。
+//                      I = max(広がり層, 核層)。夜景の合成（広がり=加算→トーンマップ、核=max）と同じ。
+//                      広がり層は toneMapSpreadHeat() が夜景と同じ式で浮動小数のまま出す
+//                      （8bitに丸めないので、ハローの裾に量子化の段が出ない）。
+//                      核層は夜景と同じ drawCores() を黒地のオフスクリーンへ描いて読む。
+//   表現層 … t = ((I-I0)/(1-I0))^γ を色ランプ（RGBA）に通し、明るい下地の上へ source-over。
+//            単調（I が大きいほど不透明度も濃さも増す）。「色＝種類」はここでは使わない。
+// 夜景の計算式・定数・セル層には触れていない（広がり層の加算バッファとセル加算はそのまま共用）。
+var HEAT_GAMMA = 0.62;
+// ノイズ床 I0: 強度がこれ以下の画素は塗らない。夜景側で「光の無い暗い海」とみなされる
+// 画素（輝度<0.03＝地色0.0235＋広がり1階調以下）にまで薄黄色が乗り、外洋の地色が
+// 変わってしまうのを防ぐ（QA (j3)）。床を引いてから γ を掛けるので不透明度は 0 から連続。
+var HEAT_FLOOR = 0.008;
+var HEAT_STOPS = [   // [t, R, G, B, A(0-255)]（追補3の色ランプ）
+  [0.00, 255,236,160,  0],
+  [0.05, 255,232,150, 70],
+  [0.25, 255,196, 70,150],
+  [0.50, 255,128, 30,195],
+  [0.75, 232, 48, 32,225],
+  [1.00, 150, 10, 30,240]
+];
+var HEAT_LUT_N = 2048;
+var HEAT_LUT = null;               // I(0..1) → RGBA（非乗算）
+function heatRampAt(t){
+  t=Math.max(0,Math.min(1,t));
+  for(var i=1;i<HEAT_STOPS.length;i++){
+    var b=HEAT_STOPS[i];
+    if(t<=b[0]){
+      var a=HEAT_STOPS[i-1], f=(t-a[0])/((b[0]-a[0])||1);
+      return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f, a[4]+(b[4]-a[4])*f];
+    }
+  }
+  var l=HEAT_STOPS[HEAT_STOPS.length-1]; return [l[1],l[2],l[3],l[4]];
+}
+function heatT(I){
+  var u=(I-HEAT_FLOOR)/(1-HEAT_FLOOR);
+  return u<=0 ? 0 : Math.pow(Math.min(1,u), HEAT_GAMMA);
+}
+function buildHeatLUT(){
+  HEAT_LUT=new Uint8ClampedArray((HEAT_LUT_N+1)*4);
+  for(var i=0;i<=HEAT_LUT_N;i++){
+    var c=heatRampAt(heatT(i/HEAT_LUT_N));
+    HEAT_LUT[i*4]=c[0]; HEAT_LUT[i*4+1]=c[1]; HEAT_LUT[i*4+2]=c[2];
+    HEAT_LUT[i*4+3]= heatT(i/HEAT_LUT_N)>0 ? c[3] : 0;
+  }
+}
+// 下地（追補3）。県境・交通路・ラベル・インセット枠もここで持つ。
+var HP = {
+  sea:'#DEE6EC', land:'#F7F6F2', coast:'#B0BAC4', pref:'#D0D4D8',
+  insetSea:'#D6DFE6', insetFrame:'#B4BEC8', insetLabel:'#5f6b78',
+  edge:[140,118,96], label:'#262c33', labelHalo:'rgba(255,255,255,.92)', sel:'rgba(31,41,51,.85)'
+};
+
+// ---- 広がり層（強度）: toneMapSpread と同じ式を浮動小数で
+var heatS=null, heatR=null, heatG=null, heatB=null;
+function toneMapSpreadHeat(withCells){
+  var img=spreadCx.getImageData(0,0,SPW,SPH), d=img.data, n=SPW*SPH, i, p;
+  if(!heatS || heatS.length!==n){
+    heatS=new Float32Array(n); heatR=new Float32Array(n); heatG=new Float32Array(n); heatB=new Float32Array(n);
+  }
+  for(p=0,i=0;p<n;p++,i+=4){ heatR[p]=d[i]; heatG[p]=d[i+1]; heatB[p]=d[i+2]; }
+  // 夜景と同じ幅4の箱フィルタ（網点対策）。夜景は結果を8bitへ丸めるが、ここでは丸めない。
+  boxBlur4f(heatR,SPW,SPH); boxBlur4f(heatG,SPW,SPH); boxBlur4f(heatB,SPW,SPH);
+  if(!CELL_TONE) buildCellTone();
+  var cm=Math.max(CELL_COL[0],CELL_COL[1],CELL_COL[2]);
+  var lumC=(0.2126*CELL_COL[0]+0.7152*CELL_COL[1]+0.0722*CELL_COL[2])/cm;
+  var r,g,b,m,rawB,rawC,tot,lum;
+  for(p=0;p<n;p++){
+    r=heatR[p]; g=heatG[p]; b=heatB[p];
+    m = r>g ? (r>b?r:b) : (g>b?g:b);
+    rawB = m>0 ? (m/255)/SPREAD_PRE : 0;
+    rawC = withCells ? cellAcc[p] : 0;
+    tot = rawB+rawC;
+    if(tot<=0){ heatS[p]=0; continue; }
+    // 出力 = CAP*(1-exp(-raw/CAP))（夜景の TONE_LUT / toneOf と同じ式）× 色の輝度比
+    lum = (rawC*lumC + (m>0 ? rawB*(0.2126*r+0.7152*g+0.0722*b)/m : 0))/tot;
+    heatS[p] = toneOf(tot)*lum;
+  }
+}
+// ---- 強度場 → ヒート画像（CSS画素の解像度。DPR>1 では drawImage で拡大）
+var heatCv=null, heatCx=null, coreCv=null, coreCx=null, heatImg=null, heatIdxKey='';
+var hx0=null, hx1=null, hfx=null, hy0=null, hy1=null, hfy=null;
+function renderHeat(list){
+  if(!HEAT_LUT) buildHeatLUT();
+  var w=Math.max(1,W|0), h=Math.max(1,H|0);
+  if(!heatCv){
+    heatCv=document.createElement('canvas'); heatCx=heatCv.getContext('2d');
+    coreCv=document.createElement('canvas'); coreCx=coreCv.getContext('2d',{willReadFrequently:true});
+  }
+  if(heatCv.width!==w || heatCv.height!==h){
+    heatCv.width=w; heatCv.height=h; coreCv.width=w; coreCv.height=h; heatImg=null;
+  }
+  // 核層: 夜景と同じ drawCores を黒地へ（lighten＝max合成）。cx を一時的に差し替える。
+  coreCx.setTransform(1,0,0,1,0,0);
+  coreCx.globalCompositeOperation='source-over';
+  coreCx.fillStyle='#000'; coreCx.fillRect(0,0,w,h);
+  var saved=cx; cx=coreCx;
+  try{ drawCores(list); } finally { cx=saved; }
+  var cd=coreCx.getImageData(0,0,w,h).data;
+  if(!heatImg || heatIdxKey!==w+'x'+h+'|'+SPW+'x'+SPH){
+    heatIdxKey=w+'x'+h+'|'+SPW+'x'+SPH;
+    heatImg=heatCx.createImageData(w,h);
+    // 広がり層（SPW×SPH）→ CSS画素の双線形補間の添字（夜景の drawImage 拡大と同じ対応）
+    hx0=new Int32Array(w); hx1=new Int32Array(w); hfx=new Float32Array(w);
+    hy0=new Int32Array(h); hy1=new Int32Array(h); hfy=new Float32Array(h);
+    var k, sx, sy, fxs=SPW/w, fys=SPH/h;
+    for(k=0;k<w;k++){ sx=Math.max(0,Math.min(SPW-1,(k+0.5)*fxs-0.5)); hx0[k]=sx|0; hx1[k]=Math.min(SPW-1,hx0[k]+1); hfx[k]=sx-hx0[k]; }
+    for(k=0;k<h;k++){ sy=Math.max(0,Math.min(SPH-1,(k+0.5)*fys-0.5)); hy0[k]=sy|0; hy1[k]=Math.min(SPH-1,hy0[k]+1); hfy[k]=sy-hy0[k]; }
+  }
+  var o=heatImg.data, L=HEAT_LUT, N=HEAT_LUT_N, S=heatS, x, y, q=0, r0, r1, fy, a, b, s, c, I, li;
+  for(y=0;y<h;y++){
+    r0=hy0[y]*SPW; r1=hy1[y]*SPW; fy=hfy[y];
+    for(x=0;x<w;x++,q+=4){
+      a=S[r0+hx0[x]]+(S[r0+hx1[x]]-S[r0+hx0[x]])*hfx[x];
+      b=S[r1+hx0[x]]+(S[r1+hx1[x]]-S[r1+hx0[x]])*hfx[x];
+      s=a+(b-a)*fy;
+      c=(0.2126*cd[q]+0.7152*cd[q+1]+0.0722*cd[q+2])*(1/255);
+      I= s>c ? s : c;
+      li=(I>=1 ? N : (I<=0 ? 0 : (I*N+0.5)|0))<<2;
+      o[q]=L[li]; o[q+1]=L[li+1]; o[q+2]=L[li+2]; o[q+3]=L[li+3];
+    }
+  }
+  heatCx.putImageData(heatImg,0,0);
+}
+
+// ---- 下地（陸・海岸線・県境）
+function heatLandPolys(){            // [{k, proj}] 本図に描く島
+  var out=[];
+  Object.keys(COAST).forEach(function(k){
+    if(OG_ISL[k]) return;
+    if(SW_ISL[k]){ if(BP==='narrow') out.push({k:k, proj:projCompressedSW}); return; }
+    out.push({k:k, proj:projMain});
+  });
+  return out;
+}
+function prefLines(){
+  var P=window.PMAP_PREF_LINES;
+  return (P && P.length && Array.isArray(P[0])) ? P : null;
+}
+// 県境は陸の上だけ（海上に残る線は陸地ポリゴンで clip して消す）。
+function strokePrefClipped(polys, proj){
+  var P=prefLines(); if(!P) return;
+  cx.save();
+  cx.beginPath();
+  polys.forEach(function(e){
+    var arr=COAST[e.k], pj=e.proj||proj;
+    for(var i=0;i<arr.length;i+=2){
+      var q=pj(arr[i],arr[i+1]);
+      if(i===0) cx.moveTo(q[0],q[1]); else cx.lineTo(q[0],q[1]);
+    }
+    cx.closePath();
+  });
+  cx.clip();
+  cx.strokeStyle=HP.pref; cx.lineWidth=0.9; cx.lineJoin='round'; cx.lineCap='round';
+  cx.beginPath();
+  for(var j=0;j<P.length;j++){
+    var ln=P[j]; if(!ln || ln.length<2) continue;
+    for(var m=0;m<ln.length;m++){
+      var q2=proj(ln[m][0],ln[m][1]);
+      if(m===0) cx.moveTo(q2[0],q2[1]); else cx.lineTo(q2[0],q2[1]);
+    }
+  }
+  cx.stroke();
+  cx.restore();
+}
+function drawLandHeat(){
+  var polys=heatLandPolys();
+  cx.fillStyle=HP.land; cx.strokeStyle=HP.coast; cx.lineWidth=1;
+  polys.forEach(function(e){ polyPath(COAST[e.k], e.proj); cx.fill(); cx.stroke(); });
+  // 本図: 本州等は projMain、狭幅の南西諸島は圧縮投影で別々に clip する
+  strokePrefClipped(polys.filter(function(e){ return e.proj===projMain; }), projMain);
+  if(BP==='narrow') strokePrefClipped(polys.filter(function(e){ return e.proj===projCompressedSW; }), projCompressedSW);
+}
+function drawInsetsHeat(){
+  insets.forEach(function(s){
+    var b=s.box, set=(s.geo===INSET_SW)?SW_ISL:OG_ISL;
+    var pj=function(lo,la){ return [lo*KC*s.sc+s.ox, s.oy-la*s.sc]; };
+    cx.save();
+    cx.beginPath(); cx.rect(b.x,b.y,b.w,b.h); cx.clip();
+    if(!QA){ cx.fillStyle=HP.insetSea; cx.fillRect(b.x,b.y,b.w,b.h); }
+    cx.fillStyle=HP.land; cx.strokeStyle=HP.coast; cx.lineWidth=1;
+    var polys=[];
+    Object.keys(COAST).forEach(function(k){
+      if(!set[k]) return;
+      polyPath(COAST[k], pj); cx.fill(); cx.stroke();
+      polys.push({k:k, proj:pj});
+    });
+    strokePrefClipped(polys, pj);
+    cx.restore();
+    if(QA) return;
+    cx.strokeStyle=HP.insetFrame; cx.lineWidth=1; cx.strokeRect(b.x+.5,b.y+.5,b.w,b.h);
+    cx.fillStyle=HP.insetLabel; cx.font='10px sans-serif';
+    cx.fillText(s.label, b.x+6, b.y+13);
+  });
+}
+// 交通路: 灰茶の細線（夜景の drawEdges と同じ対象・同じ濃さの係数）
+function drawEdgesHeat(y){
+  var gain = state.edges ? 1 : (ERA_NET[eraOf(y)]||0);
+  if(gain<=0) return;
+  var c=HP.edge;
+  cx.save(); cx.lineCap='round';
+  D.edges.forEach(function(e){
+    if(y<e.s-40 || y>e.e+40) return;
+    var pts=[];
+    for(var i=0;i<e.p.length;i++){
+      var q=projFor(e.p[i][0], e.p[i][1]);
+      if(q[0]===null) return;
+      pts.push(q);
+    }
+    var doc = e.ev==='documented';
+    cx.strokeStyle = 'rgba('+c[0]+','+c[1]+','+c[2]+','+((doc?0.85:0.55)*Math.min(1,gain*1.1)).toFixed(3)+')';
+    cx.lineWidth = doc? 1.0 : 0.8;
+    cx.setLineDash(doc? [] : [2,4]);
+    cx.beginPath();
+    for(var j=0;j<pts.length;j++){
+      if(j===0) cx.moveTo(pts[j][0],pts[j][1]); else cx.lineTo(pts[j][0],pts[j][1]);
+    }
+    cx.stroke();
+  });
+  cx.setLineDash([]); cx.restore();
+}
+// 主要都市名: 濃色文字＋白フチ。スコア上位から、重ならないものだけ。
+function shortName(n){
+  n=String(n||'');
+  if(/都区部$/.test(n)) return n.replace(/都区部$/,'');
+  if(/市$/.test(n) && !/日市$/.test(n) && n.length>=2) return n.slice(0,-1);
+  return n;
+}
+function drawLabelsHeat(list){
+  if(!state.labels) return;
+  var maxN = BP==='wide' ? 12 : (BP==='mid' ? 9 : 6);
+  var cand=list.filter(function(L){ return L.v>0; }).sort(function(a,b){ return b.v-a.v; });
+  var placed=[], seen={}, ui=uiAvoidRects(W,H);
+  cx.save();
+  cx.font='600 12px "Hiragino Sans","Yu Gothic",sans-serif';
+  cx.textBaseline='middle'; cx.lineJoin='round';
+  for(var i=0;i<cand.length && placed.length<maxN;i++){
+    var L=cand[i], t=shortName(L.p.n);
+    if(!t || seen[t]) continue;
+    var tw=cx.measureText(t).width, off=Math.max(5,(L.coreR||2)+3);
+    var rc={x:L.x+off-2, y:L.y-8, w:tw+4, h:16};
+    if(rc.x+rc.w>W-4 || rc.y<2 || rc.y+rc.h>H-2) continue;
+    var hitAny=false;
+    for(var j=0;j<placed.length;j++) if(rectsIntersect(rc,placed[j])){ hitAny=true; break; }
+    if(!hitAny) for(var u=0;u<ui.length;u++) if(rectsIntersect(rc,ui[u])){ hitAny=true; break; }
+    if(hitAny) continue;
+    placed.push(rc); seen[t]=1;
+    cx.strokeStyle=HP.labelHalo; cx.lineWidth=3.2; cx.strokeText(t, L.x+off, L.y);
+    cx.fillStyle=HP.label; cx.fillText(t, L.x+off, L.y);
+  }
+  cx.restore();
+}
+function drawSelRingHeat(list){
+  if(!state.sel) return;
+  for(var i=0;i<list.length;i++){
+    if(list[i].p.id===state.sel){
+      cx.save(); cx.strokeStyle=HP.sel; cx.lineWidth=1.5;
+      cx.beginPath(); cx.arc(list[i].x,list[i].y,13,0,6.2832); cx.stroke(); cx.restore();
+      return;
+    }
+  }
+}
+var heatKeyLast='';
+function drawHeat(){
+  cx.setTransform(DPR,0,0,DPR,0,0);
+  cx.fillStyle=HP.sea; cx.fillRect(0,0,W,H);
+  drawLandHeat();
+  if(!QA) drawEdgesHeat(state.year);    // QA（?qa=1）は下地＋ヒート＋海岸線＋県境だけ
+  drawInsetsHeat();
+  lightCache=computeLights(state.year);
+  if(HEAT_OFF){
+    cellFrame = cellFrameFor(state.year);
+  }else{
+    // 夜景と同じキー: 同じ年・同じ画面の再描画（選択・ラベル切替・パネル開閉）は作り直さない
+    var key=state.year+'|'+W+'|'+H+'|'+DPR+'|'+CURVE_NAME+'|'+insets.length+'|c'+cellsRev+'|'+BP;
+    if(key!==heatKeyLast){
+      var t0=DEBUG?performance.now():0;
+      renderSpread(lightCache);
+      renderHeat(lightCache);
+      heatKeyLast=key;
+      if(DEBUG) window.__heatMs=performance.now()-t0;
+    }
+    cx.save();
+    cx.imageSmoothingEnabled=true;
+    cx.drawImage(heatCv, 0,0,heatCv.width,heatCv.height, 0,0,W,H);
+    cx.restore();
+  }
+  if(!QA){
+    drawLabelsHeat(lightCache);
+    drawSelRingHeat(lightCache);
+    updateHUD(); drawTrack(); if(state.sel) renderPanel();
+  }
   if(QA_DUMP) writeQADump();
 }
 
@@ -1629,6 +1986,9 @@ function writeQADump(){
           return {mesh_year:q.set.mesh_year, weight:+q.wt.toFixed(4), count:q.set.count}; })
       } : {display_year:state.year, mesh_year:null, count:0, coverage:'',
            footprint_note:'セル無し（現行Rendererへフォールバック）'+(cellNote?' / '+cellNote:'')},
+    style:STYLE, heat_off:HEAT_OFF,
+    heat:{gamma:HEAT_GAMMA, floor:HEAT_FLOOR, stops:HEAT_STOPS, res:'css_px',
+          pref_lines:(window.PMAP_PREF_LINES && window.PMAP_PREF_LINES.length)||0},
     core:{gamma:CORE_GAMMA, expo_frac:CORE_EXPO_FRAC, r_min:CORE_R_MIN, r_k:CORE_R_K, halo:CORE_HALO},
     view:{sc:view.sc, ox:view.ox, oy:view.oy},
     insets:insets.map(function(s){ return {label:s.label, box:s.box, sc:s.sc, ox:s.ox, oy:s.oy,
@@ -1685,7 +2045,7 @@ function updateAboutTech(){
       ? '<b>光のセル</b>（1km²メッシュ '+(+cellFrame.count||0).toLocaleString()+' セルの加算 / メッシュ年 '+
         (+cellFrame.mesh_year||0)+'・範囲 '+esc(String(cellFrame.coverage||'—'))+'）'
       : '地点（点＋線）')+'<br>'+
-    '<span style="color:#6f7b90">?debug=1 を付けた上で ?curve=anchor|gamma|power|exp|log|linear|drc|percentile を指定すると切替（gamma/powerは &amp;g=、expは &amp;k= で係数指定）。?dur= で再生秒数。</span>';
+    '<span style="color:var(--mute)">?debug=1 を付けた上で ?curve=anchor|gamma|power|exp|log|linear|drc|percentile を指定すると切替（gamma/powerは &amp;g=、expは &amp;k= で係数指定）。?dur= で再生秒数。</span>';
 }
 
 // ============================================================ タイムライン
@@ -1709,48 +2069,57 @@ function resizeTrack(){
   tcx.setTransform(DPR,0,0,DPR,0,0);
   EVBINS=buildEvBins(Math.max(200,Math.floor(TW)));
 }
+// タイムラインの配色。夜景（?style=night）は従来のリテラルのまま。
+var TRACK_PAL = HEAT ? {
+  comp:'source-over', ev:'232,110,40', evMul:0.55, rail:'#c3cbd3', tick:'#97a3af', tlbl:'#5f6b78',
+  ends:'#6b7685', foot:'#7a8591'
+} : {
+  comp:'lighter', ev:'255,206,140', evMul:1, rail:'#232c3e', tick:'#41506c', tlbl:'#6f7d95',
+  ends:'#5b667c', foot:'#4d5769'
+};
 function drawTrack(){
   if(!TW) return;
+  var TP=TRACK_PAL;
   tcx.setTransform(DPR,0,0,DPR,0,0);
   tcx.clearRect(0,0,TW,TH);
   var y0=42;
   // 出来事密度（D-024）: 軌道上で微発光
-  tcx.save(); tcx.globalCompositeOperation='lighter';
+  tcx.save(); tcx.globalCompositeOperation=TP.comp;
   for(var i=0;i<EVBINS.length;i++){
     var v=EVBINS[i]; if(v<=0) continue;
     var x=i*(TW/EVBINS.length);
     var g=tcx.createLinearGradient(0,y0-11,0,y0+11);
-    var a=0.10+0.72*Math.pow(v,0.6);
-    g.addColorStop(0,'rgba(255,206,140,0)');
-    g.addColorStop(.5,'rgba(255,206,140,'+a.toFixed(3)+')');
-    g.addColorStop(1,'rgba(255,206,140,0)');
+    var a=(0.10+0.72*Math.pow(v,0.6))*TP.evMul;
+    g.addColorStop(0,'rgba('+TP.ev+',0)');
+    g.addColorStop(.5,'rgba('+TP.ev+','+a.toFixed(3)+')');
+    g.addColorStop(1,'rgba('+TP.ev+',0)');
     tcx.fillStyle=g; tcx.fillRect(x, y0-11, Math.max(1,TW/EVBINS.length+0.6), 22);
   }
   tcx.restore();
   // 軌道
-  tcx.strokeStyle='#232c3e'; tcx.lineWidth=1;
+  tcx.strokeStyle=TP.rail; tcx.lineWidth=1;
   tcx.beginPath(); tcx.moveTo(0,y0+.5); tcx.lineTo(TW,y0+.5); tcx.stroke();
   // 代表時点の目盛り
   tcx.font='9.5px sans-serif'; tcx.textAlign='center';
   var lastLx=-99, row=0;
   TPS.forEach(function(t,i){
     var x=yearToPos(t.y)*TW;
-    tcx.strokeStyle='#41506c';
+    tcx.strokeStyle=TP.tick;
     tcx.beginPath(); tcx.moveTo(x,y0-6); tcx.lineTo(x,y0+6); tcx.stroke();
     var lbl=t.t.replace('AD','');
     var wpx=tcx.measureText(lbl).width;
     row = (x-lastLx < wpx+8) ? (row?0:1) : 0;   // 近すぎるものは2段に振り分け
-    tcx.fillStyle='#6f7d95';
+    tcx.fillStyle=TP.tlbl;
     tcx.fillText(lbl, Math.max(wpx/2+2, Math.min(TW-wpx/2-2, x)), y0+20+row*11);
     lastLx=x;
   });
   tcx.textAlign='left';
-  tcx.fillStyle='#5b667c'; tcx.font='10px sans-serif';
+  tcx.fillStyle=TP.ends; tcx.font='10px sans-serif';
   tcx.fillText('← 古代（圧縮）', 4, 16);
   tcx.textAlign='right'; tcx.fillText('近現代 →', TW-4, 16);
   tcx.textAlign='left';
-  tcx.fillStyle='#4d5769';
-  tcx.fillText('帯の明るい部分＝出来事が集中する時期', 4, TH-8);
+  tcx.fillStyle=TP.foot;
+  tcx.fillText(HEAT ? '帯の濃い部分＝出来事が集中する時期' : '帯の明るい部分＝出来事が集中する時期', 4, TH-8);
   document.getElementById('knob').style.left=(yearToPos(state.year)*TW)+'px';
 }
 
@@ -1929,7 +2298,7 @@ function renderPanel(){
   var p=PL[pid], sc=scoreAt(pid,state.year), rows=SER[pid]||[];
   document.getElementById('pName').textContent=p.n;
   document.getElementById('pMeta').innerHTML=
-    '<span class="tag">'+esc(p.kt)+'</span>'+esc(p.pref||'')+
+    '<span class="tag">'+esc(HEAT ? ktJa(p.kt) : p.kt)+'</span>'+esc(p.pref||'')+
     (p.hn? '<br>別称: '+esc(p.hn) : '')+
     '<br>座標 '+p.lat.toFixed(3)+', '+p.lon.toFixed(3);
 
@@ -1937,13 +2306,13 @@ function renderPanel(){
   var now='';
   if(sc){
     now = fmtYear(state.year)+' — スコア <b>'+sc.v.toFixed(1)+'</b>（'+bandOf(sc.v)+'帯）'+
-      (sc.interp? ' <span style="color:#f0b96b">前後の年代からの推定表示</span>'
-                 : ' <span style="color:#9fd8a8">調査にもとづく値</span>');
-    if(sc.stepped) now+='<br><span style="font-size:11px;color:#e0b98a">直近の段差: '+
+      (sc.interp? ' <span style="color:var(--sInterp)">前後の年代からの推定表示</span>'
+                 : ' <span style="color:var(--sObs)">調査にもとづく値</span>');
+    if(sc.stepped) now+='<br><span style="font-size:11px;color:var(--sStep)">直近の段差: '+
       fmtYear(sc.stepped.y)+' '+esc(sc.stepped.x)+'</span>';
-    if(sc.fade) now+='<br><span style="font-size:11px;color:#8792a6">この年代の前後に評価がないため、光が弱まっています</span>';
+    if(sc.fade) now+='<br><span style="font-size:11px;color:var(--sFade)">この年代の前後に評価がないため、光が弱まっています</span>';
   } else {
-    now='<span style="color:#8792a6">この年代の記録・評価はありません</span>';
+    now='<span style="color:var(--sFade)">この年代の記録・評価はありません</span>';
   }
   document.getElementById('pNow').innerHTML=now;
 
@@ -1956,7 +2325,7 @@ function renderPanel(){
   evs.forEach(function(e){
     var d=DIRC[e.d]||DIRC[0];
     var near=Math.abs(e.y-state.year)<=40;
-    html+='<div class="ev" style="'+(near?'background:rgba(255,214,150,.06)':'')+'">'+
+    html+='<div class="ev" style="'+(near?'background:var(--evNear)':'')+'">'+
       '<span class="y">'+(e.yr||e.y)+'</span>'+
       '<span class="d '+d[1]+'">'+d[0]+'</span>'+
       '<span class="x">'+esc(e.x)+'</span></div>';
@@ -1967,9 +2336,26 @@ function renderPanel(){
     'スコアと評価理由: <code>data/scores/*.md</code>（各行に score_confidence と出典番号つき）<br>'+
     '出来事: <code>data/db/historical_events.csv</code>（各行 source_ids / source_ticket つき）<br>'+
     '地点座標: <code>data/db/places.csv</code>（location_confidence つき）<br>'+
-    '<span style="color:#7d879a">※本画面は要旨のみ。原文・出典番号は上記の正本ファイルを参照。</span>';
+    '<span style="color:var(--mute)">※本画面は要旨のみ。原文・出典番号は上記の正本ファイルを参照。</span>';
 
   drawSpark(rows, sc);
+}
+// ヒートでは「色＝種類」を廃止したので、種類は地点パネルの文字で示す（追補3）。
+// 種類コード（places.csv の kind）→ 日本語。未知のコードはそのまま出す。
+var KT_JA = {urban:'都市', port:'港', castle_town:'城下町', mine:'鉱山', settlement:'集落', node:'結節点',
+  tomb_group:'古墳群', tomb:'古墳', government_seat:'政庁', provincial_capital:'国府', post_town:'宿場',
+  resource_source:'資源産地', shell_midden:'貝塚', kashi:'河岸', capital:'都', trade_node:'交易拠点',
+  frontier_fort:'城柵', regional_admin:'地方官衙', ritual_site:'祭祀遺跡', production_site:'生産遺跡',
+  shrine_town:'鳥居前町', monzen:'門前町', temple_town:'寺内町・門前町', river_port:'川港', temple:'寺院',
+  ancient_fortress:'古代山城', gateway:'玄関口', ritual_admin:'祭政拠点', district:'地区',
+  wide_area_admin:'広域行政', free_city:'自治都市', jinaicho:'寺内町', trade_center:'商業中心',
+  manor_seat:'荘園拠点', archaeological_site:'遺跡'};
+function ktJa(kt){
+  var s0=String(kt||'');
+  if(/\(T2N\)/.test(s0)) return '市区町村';
+  var seen={}, out=[];
+  s0.split(/[;|]/).forEach(function(k){ k=k.trim(); if(!k) return; var j=KT_JA[k]||k; if(!seen[j]){ seen[j]=1; out.push(j); } });
+  return out.join('・');
 }
 function esc(s){ return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
 
@@ -2081,11 +2467,13 @@ function drawSpark(rows, sc){
   g.clearRect(0,0,w,h);
   var pad=6, iw=w-pad*2, ih=h-pad*2-10;
   // 全代表時点の薄い目盛り
-  g.strokeStyle='#151d2b';
+  var SP = HEAT ? {grid:'#e6eaee', line:'#d9541e', dot:'#b23a10', cur:'rgba(31,41,51,.35)', curDot:'#1f2933', txt:'#7a8591'}
+                : {grid:'#151d2b', line:'#ffd9a0', dot:'#ffe9c4', cur:'rgba(255,255,255,.45)', curDot:'#fff', txt:'#5b667c'};
+  g.strokeStyle=SP.grid;
   TPS.forEach(function(t){ var x=pad+yearToPos(t.y)*iw;
     g.beginPath(); g.moveTo(x,pad); g.lineTo(x,pad+ih); g.stroke(); });
   // 折れ線（行がある時点だけ・非連続は途切れさせる）
-  g.strokeStyle='#ffd9a0'; g.lineWidth=1.4; g.beginPath();
+  g.strokeStyle=SP.line; g.lineWidth=1.4; g.beginPath();
   var prevIdx=null, started=false;
   rows.forEach(function(r){
     var idx=tpIndex[r.y];
@@ -2097,17 +2485,17 @@ function drawSpark(rows, sc){
   g.stroke();
   rows.forEach(function(r){
     var x=pad+yearToPos(r.y)*iw, y=pad+ih-(r.s/100)*ih;
-    g.fillStyle='#ffe9c4'; g.beginPath(); g.arc(x,y,1.8,0,6.2832); g.fill();
+    g.fillStyle=SP.dot; g.beginPath(); g.arc(x,y,1.8,0,6.2832); g.fill();
   });
   // 現在位置
   var cxp=pad+yearToPos(state.year)*iw;
-  g.strokeStyle='rgba(255,255,255,.45)'; g.beginPath();
+  g.strokeStyle=SP.cur; g.beginPath();
   g.moveTo(cxp,pad-2); g.lineTo(cxp,pad+ih+4); g.stroke();
   if(sc && sc.v>0){
     var cy=pad+ih-(sc.v/100)*ih;
-    g.fillStyle='#fff'; g.beginPath(); g.arc(cxp,cy,2.6,0,6.2832); g.fill();
+    g.fillStyle=SP.curDot; g.beginPath(); g.arc(cxp,cy,2.6,0,6.2832); g.fill();
   }
-  g.fillStyle='#5b667c'; g.font='9px sans-serif';
+  g.fillStyle=SP.txt; g.font='9px sans-serif';
   g.fillText('0', 1, pad+ih+2); g.fillText('100', 1, pad+7);
   document.getElementById('sparkNote').textContent =
     '点＝代表時点の実測スコア（'+rows.length+'点）。線が途切れる区間はその時点にスコア行が無い（存在しない／未評価）ことを示す。';
@@ -2132,6 +2520,38 @@ if(DEBUG || QA){
     mineTrans:MINE_TRANS, isMineClosedAt:isMineClosedAt, roleOf:roleOf, topNMul:topNMul
   };
 }
+// ---- ヒート（既定）の文言・凡例（追補3）。夜景（?style=night）は従来のHTMLのまま。
+function applyHeatTexts(){
+  if(!HEAT) return;
+  var $=function(id){ return document.getElementById(id); };
+  $('title').querySelector('p').textContent='日本歴史繁栄マップ — 各時代、人はどこに集まっていたか';
+  $('btnEdges').textContent='交通路';
+  $('btnInfo').textContent='この地図について';
+  // 凡例: 色帯1本（描画と同じランプを陸の地色の上に重ねたもの）
+  var stops=[];
+  for(var i=0;i<=20;i++){
+    var t=i/20, c=heatRampAt(t);
+    stops.push('rgba('+Math.round(c[0])+','+Math.round(c[1])+','+Math.round(c[2])+','+(c[3]/255).toFixed(3)+') '+(t*100).toFixed(0)+'%');
+  }
+  $('legend').innerHTML='<div class="hbar" style="background-image:linear-gradient(90deg,'+stops.join(',')+')"></div>'+
+    '<div class="hends"><span>まばら</span><span>集まっている</span></div>'+
+    (prefLines() ? '<div class="hsub">県境は現在のもの</div>' : '');
+  var DISC='各時代の中での相対的な集まり具合（繁栄度）を示す図で、実測の人口密度や混雑ではありません。';
+  $('note').innerHTML='<b>'+DISC+'</b>';
+  var box=document.querySelector('#modal .box');
+  box.querySelector('h3').textContent='この地図について';
+  box.querySelector('.warn').textContent=DISC+'当時の人口・交易・交通・産業・政治的重要性などから推定しています。';
+  var ps=box.querySelectorAll(':scope > p');
+  if(ps[1]) ps[1].textContent='色の濃さは、その時代の中での集まり具合（黄→橙→赤の順に集まっている）。各時代の上位の地点だけを描いています。場所の種類（都市・城下町／港／鉱山／宿場など）は、地点をクリックすると表示されます。県境は位置の手がかりとして現在のものを描いています。';
+  var det=box.querySelector('details');
+  if(det){
+    var p0=document.createElement('p'); p0.style.marginTop='10px';
+    p0.textContent='以下の「光」「明るさ」は、この地図の色の濃さの元になっている強さのことです（同じ強さを夜景として描く表示 ?style=night も残しています）。';
+    det.insertBefore(p0, det.querySelector('p'));
+  }
+  state.labels=true; $('btnLabel').classList.add('on');   // 主要都市名は既定で表示
+}
+applyHeatTexts();
 // 光のセル（近代以降のLayer 1）。読めなければ何もせず現行Rendererのまま。
 loadCells();
 updateSourceLine();
