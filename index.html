@@ -17,7 +17,7 @@
     --note:#5f6b78; --noteB:#3b4450;
     --fadeE:rgba(31,41,51,.20); --fadeShadow:none; --fadeY:rgba(31,41,51,.40);
     --timebar:linear-gradient(#f6f8fa,#e9edf1);
-    --knob:#c2410c; --knobGlow:rgba(194,65,12,.35);
+    --knob:#c2410c; --knobGlow:rgba(194,65,12,.35); --knobGlow2:rgba(194,65,12,.35);
     --h3:#4b5563; --now:#7c2d12; --why:#2f3a46;
     --wdt:#6b7685; --wdtHover:#2f3a46; --wdBorder:#d5dbe1;
     --evY:#4b5563; --evUp:#15803d; --evDn:#b91c1c; --evNu:#8a94a0; --evX:#2f3a46; --evBorder:#e3e7eb;
@@ -39,7 +39,7 @@
     --note:#67728a; --noteB:#8794aa;
     --fadeE:rgba(255,238,208,.30); --fadeShadow:0 0 40px rgba(255,214,150,.18); --fadeY:rgba(210,222,242,.30);
     --timebar:linear-gradient(#070a11,#04060c);
-    --knob:#ffe9c4; --knobGlow:rgba(255,214,150,.55);
+    --knob:#ffe9c4; --knobGlow:rgba(255,214,150,.55); --knobGlow2:rgba(255,214,150,.6);
     --h3:#9fb0cc; --now:#ffe3bb; --why:#c3ccdb;
     --wdt:#7d879a; --wdtHover:#aeb8c9; --wdBorder:#1e2637;
     --evY:#9fb0cc; --evUp:#8fdcb0; --evDn:#e08a8a; --evNu:#7c879b; --evX:#aeb8c9; --evBorder:#1e2637;
@@ -104,7 +104,7 @@
   #knob{position:absolute;top:26px;width:2px;height:30px;background:var(--knob);
     box-shadow:0 0 10px 2px var(--knobGlow);pointer-events:none}
   #knob::after{content:"";position:absolute;left:-4px;top:-6px;width:10px;height:10px;
-    border-radius:50%;background:var(--knob);box-shadow:0 0 12px 3px var(--knobGlow)}
+    border-radius:50%;background:var(--knob);box-shadow:0 0 12px 3px var(--knobGlow2)}
 
   /* ---- Layer2 パネル ---- */
   #panel{position:absolute;right:0;top:0;bottom:0;width:370px;background:var(--panel);
@@ -1828,9 +1828,12 @@ function strokePrefClipped(polys, proj){
   cx.beginPath();
   for(var j=0;j<P.length;j++){
     var ln=P[j]; if(!ln || ln.length<2) continue;
+    var started=false;
     for(var m=0;m<ln.length;m++){
-      var q2=proj(ln[m][0],ln[m][1]);
-      if(m===0) cx.moveTo(q2[0],q2[1]); else cx.lineTo(q2[0],q2[1]);
+      var pt=ln[m];                                   // 壊れた座標要素は飛ばす（描画全体を止めない。レビュー指摘）
+      if(!pt || !isFinite(+pt[0]) || !isFinite(+pt[1])) continue;
+      var q2=proj(+pt[0],+pt[1]);
+      if(!started){ cx.moveTo(q2[0],q2[1]); started=true; } else cx.lineTo(q2[0],q2[1]);
     }
   }
   cx.stroke();
@@ -2087,7 +2090,7 @@ function resizeTrack(){
 // タイムラインの配色。夜景（?style=night）は従来のリテラルのまま。
 var TRACK_PAL = HEAT ? {
   comp:'source-over', ev:'232,110,40', evMul:0.55, rail:'#c3cbd3', tick:'#97a3af', tlbl:'#5f6b78',
-  ends:'#6b7685', foot:'#7a8591'
+  ends:'#566170', foot:'#5a6573'      // 10px の説明文でもコントラスト比 4.5:1 以上（レビュー指摘）
 } : {
   comp:'lighter', ev:'255,206,140', evMul:1, rail:'#232c3e', tick:'#41506c', tlbl:'#6f7d95',
   ends:'#5b667c', foot:'#4d5769'
